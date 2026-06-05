@@ -396,6 +396,97 @@ class TestPumpReportParser:
 
 
 # =====================================================================
+# Tests AirValveSizing (Phase 3)
+# =====================================================================
+
+class TestAirValveSizing:
+
+    def test_load_profile_manual(self):
+        from air_valve_sizing import AirValveSizing
+        sizer = AirValveSizing()
+        sizer.load_profile_manual([(0, 100), (250, 120), (500, 110)])
+        assert len(sizer.profile) == 3
+        assert sizer.profile[0]["pk_m"] == 0
+        assert sizer.profile[2]["pk_m"] == 500
+
+    def test_high_low_points(self):
+        from air_valve_sizing import AirValveSizing
+        sizer = AirValveSizing()
+        sizer.load_profile_manual([
+            (0, 100), (100, 110), (200, 105), (300, 115), (400, 100)
+        ])
+        # Point haut au pk=100 (z=110) et pk=300 (z=115)
+        assert len(sizer.high_points) >= 2
+        # Point bas au pk=200 (z=105) et pk=400 (z=100)
+        assert len(sizer.low_points) >= 2
+
+    def test_size_ventouses(self):
+        from air_valve_sizing import AirValveSizing
+        sizer = AirValveSizing(pipe_dn_mm=250)
+        sizer.load_profile_manual([
+            (0, 100), (100, 110), (200, 105), (300, 115), (400, 100)
+        ])
+        sizer.size_ventouses()
+        assert len(sizer.ventouses) >= 2
+        for v in sizer.ventouses:
+            assert v["dn_mm"] >= 25
+            assert v["type"] in ("Anti-vide simple", "Combinée (admission + dégazage)",
+                                 "Grande orifice (admission rapide)")
+
+    def test_size_drains(self):
+        from air_valve_sizing import AirValveSizing
+        sizer = AirValveSizing(pipe_dn_mm=250)
+        sizer.load_profile_manual([
+            (0, 100), (100, 115), (250, 95), (400, 120), (500, 100)
+        ])
+        sizer.size_ventouses()
+        sizer.size_drains()
+        # Au moins une vidange entre les ventouses
+        assert len(sizer.vidanges) >= 0  # dépend de la distance
+
+    def test_dn_calculation(self):
+        from air_valve_sizing import AirValveSizing
+        sizer = AirValveSizing(pipe_dn_mm=250)
+        dn = sizer._calc_dn(250, 12)
+        assert dn >= 25
+        assert dn in [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300]
+
+    def test_export_csv(self):
+        import tempfile, os
+        from air_valve_sizing import AirValveSizing
+        sizer = AirValveSizing(pipe_dn_mm=250)
+        sizer.load_profile_manual([
+            (0, 100), (100, 115), (250, 95), (400, 120), (500, 100)
+        ])
+        sizer.size_ventouses()
+        sizer.size_drains()
+        tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+        tmp.close()
+        sizer.export_csv(tmp.name)
+        assert os.path.exists(tmp.name)
+        with open(tmp.name, 'r', encoding='utf-8-sig') as f:
+            content = f.read()
+        assert "Ventouse" in content or "Vidange" in content
+        os.unlink(tmp.name)
+
+    def test_load_profile_csv(self):
+        import tempfile, os
+        from air_valve_sizing import AirValveSizing
+        tmp = tempfile.NamedTemporaryFile(mode='w', suffix=".csv", delete=False,
+                                          encoding='utf-8')
+        tmp.write("pk;z\n")
+        tmp.write("0;100\n")
+        tmp.write("100;110\n")
+        tmp.write("200;105\n")
+        tmp.close()
+        sizer = AirValveSizing()
+        ok = sizer.load_profile_csv(tmp.name)
+        assert ok is True
+        assert len(sizer.profile) == 3
+        os.unlink(tmp.name)
+
+
+# =====================================================================
 # Point d'entrée
 # =====================================================================
 

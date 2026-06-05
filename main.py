@@ -42,6 +42,7 @@ from data_parser import HammerDataParser
 from workbook import WorkbookManager
 from pump_parser import PumpReportParser
 from report_generator import WordReportGenerator, DOCX_AVAILABLE
+from air_valve_sizing import AirValveSizing
 
 # ── Alias rétrocompatibilité ──────────────────────────────────────
 from utils import parse_number as _parse_number
@@ -80,6 +81,11 @@ class HammerPyApp(ctk.CTk):
         self.pump_parsers: list[PumpReportParser] = []
         self.pump_selected_index: int = -1  # index de la pompe sélectionnée
         self.var_pump_mode = tk.StringVar(value="Continu")
+
+        # ── Phase 3 : Ventouses & Vidanges ──────────────────────────
+        self.air_valve_sizer = AirValveSizing()
+        self.var_pipe_dn = tk.StringVar(value="250")
+        self.valve_profile_filepath: str = ""
 
         # ── État de l'application ───────────────────────────────────────
         self.station_filepath: str = ""
@@ -358,7 +364,8 @@ class HammerPyApp(ctk.CTk):
         self.tabview = ctk.CTkTabview(self, corner_radius=10)
         self.tabview.grid(row=1, column=1, padx=(10, 18), pady=15, sticky="nsew")
 
-        for name in ["Régime Permanent", "Analyse Transitoire", "Rapport Technique"]:
+        for name in ["Régime Permanent", "Analyse Transitoire", "Rapport Technique",
+                       "Ventouses & Vidanges"]:
             self.tabview.add(name)
 
         self.tabview._segmented_button.configure(font=ctk.CTkFont(size=13, weight="bold"))
@@ -366,6 +373,7 @@ class HammerPyApp(ctk.CTk):
         self._setup_steady_state_tab()
         self._setup_transient_tab()
         self._setup_report_tab()
+        self._setup_valve_tab()
 
         # ── Hooks de détection de modifications utilisateur ──────────
         # Entry du projet / ingénieur → dirty à chaque frappe
@@ -772,6 +780,259 @@ class HammerPyApp(ctk.CTk):
         if not DOCX_AVAILABLE:
             ctk.CTkLabel(btn_bar, text="python-docx non installé",
                          text_color="orange").grid(row=0, column=3, padx=6)
+
+    # ------------------------------------------------------------------
+    # Onglet 4 — Ventouses & Vidanges (Phase 3)
+    # ------------------------------------------------------------------
+    def _setup_valve_tab(self):
+        tab = self.tabview.tab("Ventouses & Vidanges")
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(2, weight=1)
+
+        # ── Titre ───────────────────────────────────────────────────
+        ctk.CTkLabel(tab, text="Profil en Long & Dimensionnement Ventouses + Vidanges",
+                     font=ctk.CTkFont(size=18, weight="bold"), anchor="w"
+                     ).grid(row=0, column=0, padx=20, pady=(18, 4), sticky="w")
+
+        # ── Barre d'outils ─────────────────────────────────────────
+        toolbar = ctk.CTkFrame(tab, fg_color="transparent")
+        toolbar.grid(row=1, column=0, padx=20, pady=4, sticky="ew")
+        toolbar.grid_columnconfigure(2, weight=1)
+
+        ctk.CTkButton(toolbar, text="Importer profil (.csv)",
+                      command=self._import_valve_profile
+                      ).grid(row=0, column=0, padx=(0, 6))
+        ctk.CTkButton(toolbar, text="Exemple profil",
+                      fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"),
+                      command=self._load_example_profile
+                      ).grid(row=0, column=1, padx=(0, 6))
+
+        ctk.CTkLabel(toolbar, text="DN conduite (mm) :",
+                     font=ctk.CTkFont(size=12)).grid(row=0, column=2, padx=(12, 4), sticky="e")
+        ctk.CTkEntry(toolbar, textvariable=self.var_pipe_dn, width=60
+                     ).grid(row=0, column=3, padx=(0, 6))
+
+        ctk.CTkButton(toolbar, text="Calculer ventouses + vidanges",
+                      fg_color="#2d6a4f", hover_color="#1b4332",
+                      font=ctk.CTkFont(weight="bold"),
+                      command=self._run_valve_sizing
+                      ).grid(row=0, column=4, padx=(6, 0))
+
+        self.lbl_valve_status = ctk.CTkLabel(toolbar, text="Aucun profil chargé",
+                                              text_color="gray", font=ctk.CTkFont(size=11))
+        self.lbl_valve_status.grid(row=0, column=5, padx=(12, 0))
+
+        # ── Zone principale : graphique + tableaux ──────────────────
+        pane = ctk.CTkFrame(tab)
+        pane.grid(row=2, column=0, padx=20, pady=(8, 16), sticky="nsew")
+        pane.grid_columnconfigure(0, weight=3)
+        pane.grid_columnconfigure(1, weight=2)
+        pane.grid_rowconfigure(0, weight=1)
+
+        # Graphique profil en long
+        chart_frame = ctk.CTkFrame(pane)
+        chart_frame.grid(row=0, column=0, padx=(10, 5), pady=10, sticky="nsew")
+        chart_frame.grid_columnconfigure(0, weight=1)
+        chart_frame.grid_rowconfigure(0, weight=1)
+
+        self.valve_fig = Figure(figsize=(5, 3.5), dpi=100, facecolor="#1a1a2e")
+        self.valve_ax = self.valve_fig.add_subplot(111)
+        self.valve_canvas = FigureCanvasTkAgg(self.valve_fig, chart_frame)
+        self.valve_canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+        self.valve_ax.set_xlabel("PK (m)", color="white", fontsize=9)
+        self.valve_ax.set_ylabel("Z (m)", color="white", fontsize=9)
+        self.valve_ax.set_title("Profil en Long", color="white", fontsize=11)
+        self.valve_fig.tight_layout()
+
+        # Panneau droit : tableaux ventouses + vidanges
+        right = ctk.CTkFrame(pane)
+        right.grid(row=0, column=1, padx=(5, 10), pady=10, sticky="nsew")
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(1, weight=1)
+        right.grid_rowconfigure(3, weight=1)
+
+        ctk.CTkLabel(right, text="Ventouses", font=ctk.CTkFont(size=13, weight="bold")
+                     ).grid(row=0, column=0, padx=8, pady=(8, 2), sticky="w")
+        self.txt_ventouses = ctk.CTkTextbox(right, font=ctk.CTkFont(family="Consolas", size=11),
+                                             state="disabled", height=120)
+        self.txt_ventouses.grid(row=1, column=0, padx=8, pady=(0, 8), sticky="nsew")
+
+        ctk.CTkLabel(right, text="Vidanges", font=ctk.CTkFont(size=13, weight="bold")
+                     ).grid(row=2, column=0, padx=8, pady=(8, 2), sticky="w")
+        self.txt_vidanges = ctk.CTkTextbox(right, font=ctk.CTkFont(family="Consolas", size=11),
+                                            state="disabled", height=120)
+        self.txt_vidanges.grid(row=3, column=0, padx=8, pady=(0, 8), sticky="nsew")
+
+        ctk.CTkButton(right, text="Exporter CSV",
+                      fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"),
+                      command=self._export_valve_csv
+                      ).grid(row=4, column=0, padx=8, pady=(4, 10))
+
+    # ------------------------------------------------------------------
+    # Handlers Phase 3
+    # ------------------------------------------------------------------
+    def _import_valve_profile(self):
+        """Importe un profil en long depuis un CSV."""
+        filepath = filedialog.askopenfilename(
+            title="Importer profil en long (.csv)",
+            filetypes=[("CSV", "*.csv"), ("Tous", "*.*")]
+        )
+        if not filepath:
+            return
+
+        self.valve_profile_filepath = filepath
+        ok = self.air_valve_sizer.load_profile_csv(filepath)
+        if ok:
+            n = len(self.air_valve_sizer.profile)
+            self.lbl_valve_status.configure(
+                text=f"Profil chargé — {n} points",
+                text_color="#2d6a4f")
+            self._update_valve_chart()
+            self._mark_dirty()
+        else:
+            messagebox.showerror("Erreur", "Impossible de charger le profil.\n"
+                               "Format attendu : CSV avec colonnes PK (m), Z (m).")
+
+    def _load_example_profile(self):
+        """Charge un profil exemple pour démonstration."""
+        example = [
+            (0,    125.5), (100,  130.0), (200,  137.0), (300,  142.0),
+            (400,  140.5), (500,  138.0), (600,  135.5), (700,  132.0),
+            (800,  130.0), (900,  128.5), (1000, 127.0),
+        ]
+        self.air_valve_sizer.load_profile_manual(example)
+        self.valve_profile_filepath = ""
+        n = len(self.air_valve_sizer.profile)
+        self.lbl_valve_status.configure(
+            text=f"Profil exemple — {n} points",
+            text_color="#2d6a4f")
+        self._update_valve_chart()
+        self._mark_dirty()
+
+    def _run_valve_sizing(self):
+        """Lance le dimensionnement ventouses + vidanges."""
+        if len(self.air_valve_sizer.profile) < 2:
+            messagebox.showwarning("Profil manquant",
+                                   "Chargez d'abord un profil en long.")
+            return
+
+        try:
+            dn = float(self.var_pipe_dn.get())
+        except ValueError:
+            messagebox.showerror("DN invalide", "Le DN conduite doit être un nombre.")
+            return
+
+        self.air_valve_sizer.pipe_dn_mm = dn
+        self.air_valve_sizer.size_ventouses()
+        self.air_valve_sizer.size_drains()
+        self._update_valve_chart()
+        self._refresh_valve_textboxes()
+        self._mark_dirty()
+
+        nv = len(self.air_valve_sizer.ventouses)
+        nd = len(self.air_valve_sizer.vidanges)
+        messagebox.showinfo("Dimensionnement terminé",
+                            f"Ventouses : {nv}\nVidanges : {nd}")
+
+    def _update_valve_chart(self):
+        """Dessine le profil en long avec les ventouses et vidanges."""
+        ax = self.valve_ax
+        ax.clear()
+
+        profile = self.air_valve_sizer.profile
+        if not profile:
+            ax.set_xlabel("PK (m)", color="white", fontsize=9)
+            ax.set_ylabel("Z (m)", color="white", fontsize=9)
+            ax.set_title("Profil en Long", color="white", fontsize=11)
+            self.valve_fig.tight_layout()
+            self.valve_canvas.draw()
+            return
+
+        pks = [p["pk_m"] for p in profile]
+        zs = [p["z_m"] for p in profile]
+
+        ax.plot(pks, zs, color="#4cc9f0", linewidth=2, marker="o", markersize=4,
+                label="Profil")
+        ax.fill_between(pks, zs, min(zs) - 5, alpha=0.15, color="#4cc9f0")
+
+        # Ventouses (▲)
+        for v in self.air_valve_sizer.ventouses:
+            ax.plot(v["pk_m"], v["z_m"], marker="^", color="#06d6a0", markersize=12,
+                    zorder=5)
+            ax.annotate(f"V\n{v['type'][:15]}", (v["pk_m"], v["z_m"]),
+                        textcoords="offset points", xytext=(0, 10),
+                        fontsize=7, color="#06d6a0", ha="center")
+
+        # Vidanges (▼)
+        for d in self.air_valve_sizer.vidanges:
+            ax.plot(d["pk_m"], d["z_m"], marker="v", color="#ef476f", markersize=12,
+                    zorder=5)
+            ax.annotate(f"D\n{d['type'][:15]}", (d["pk_m"], d["z_m"]),
+                        textcoords="offset points", xytext=(0, -15),
+                        fontsize=7, color="#ef476f", ha="center")
+
+        ax.set_xlabel("PK (m)", color="white", fontsize=9)
+        ax.set_ylabel("Z (m)", color="white", fontsize=9)
+        ax.set_title("Profil en Long", color="white", fontsize=11)
+        ax.tick_params(colors="white", labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_color("#444")
+        ax.grid(True, alpha=0.2, color="white")
+        ax.legend(loc="upper right", fontsize=8, facecolor="#1a1a2e",
+                  edgecolor="#444", labelcolor="white")
+
+        self.valve_fig.tight_layout()
+        self.valve_canvas.draw()
+
+    def _refresh_valve_textboxes(self):
+        """Met à jour les zones de texte ventouses / vidanges."""
+        # Ventouses
+        self.txt_ventouses.configure(state="normal")
+        self.txt_ventouses.delete("1.0", tk.END)
+        if self.air_valve_sizer.ventouses:
+            header = f"{'PK (m)':>8}  {'Côte (m)':>9}  {'Type':<35}  {'DN (mm)':>7}\n"
+            self.txt_ventouses.insert("1.0", header + "─" * 65 + "\n")
+            for v in self.air_valve_sizer.ventouses:
+                line = (f"{v['pk_m']:>8.1f}  {v['z_m']:>9.2f}  "
+                        f"{v['type']:<35}  {v['dn_mm']:>7}\n")
+                self.txt_ventouses.insert(tk.END, line)
+        else:
+            self.txt_ventouses.insert("1.0", "Aucune ventaise recommandée.\n")
+        self.txt_ventouses.configure(state="disabled")
+
+        # Vidanges
+        self.txt_vidanges.configure(state="normal")
+        self.txt_vidanges.delete("1.0", tk.END)
+        if self.air_valve_sizer.vidanges:
+            header = (f"{'PK (m)':>8}  {'Côte (m)':>9}  {'Type':<30}  "
+                      f"{'DN':>3}  {'Dist.G':>7}  {'Dist.D':>7}\n")
+            self.txt_vidanges.insert("1.0", header + "─" * 72 + "\n")
+            for d in self.air_valve_sizer.vidanges:
+                line = (f"{d['pk_m']:>8.1f}  {d['z_m']:>9.2f}  "
+                        f"{d['type']:<30}  {d['dn_mm']:>3}  "
+                        f"{d['distance_to_left_m']:>7.1f}  "
+                        f"{d['distance_to_right_m']:>7.1f}\n")
+                self.txt_vidanges.insert(tk.END, line)
+        else:
+            self.txt_vidanges.insert("1.0", "Aucune vidange recommandée.\n")
+        self.txt_vidanges.configure(state="disabled")
+
+    def _export_valve_csv(self):
+        """Exporte les recommandations ventouses + vidanges en CSV."""
+        if not self.air_valve_sizer.ventouses and not self.air_valve_sizer.vidanges:
+            messagebox.showwarning("Aucune donnée",
+                                   "Lancez d'abord le dimensionnement.")
+            return
+        filepath = filedialog.asksaveasfilename(
+            title="Exporter ventouses + vidanges",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv")]
+        )
+        if filepath:
+            self.air_valve_sizer.export_csv(filepath)
+            messagebox.showinfo("Export réussi", f"Fichier enregistré :\n{filepath}")
 
     # ================================================================
     # ACTIONS – Handlers événements
