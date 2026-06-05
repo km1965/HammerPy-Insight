@@ -11,8 +11,9 @@ Permettre aux ingénieurs hydrauliques de :
 2. Configurer les paramètres réglementaires de l'étude (Classe PN, pression min de sécurité)
 3. Visualiser interactivement les courbes enveloppes de pressions et volumes de gaz
 4. Consulter le **résumé du modèle hydraulique** (6 feuilles : Pipes, Nœuds, Pompes, Réservoirs, HPT, Ventouses)
-5. **Analyser la courbe H(Q) d'une pompe** à partir du rapport détaillé HAMMER (RTF/TXT)
-6. Générer en un clic une **note technique structurée au format Word (.docx)** prête à intégrer au dossier d'étude
+5. **Analyser les courbes H(Q) de pompes** (multi-pompes en parallèle ou continu)
+6. **Dimensionner les ventaises et vidanges** sur le profil en long de la conduite
+7. Générer en un clic une **note technique structurée au format Word (.docx)** prête à intégrer au dossier d'étude
 
 ---
 
@@ -32,7 +33,8 @@ Permettre aux ingénieurs hydrauliques de :
   - Configuration (PN, pression min admissible, unités, seuil HPT)
   - Données station + données HPT **embarquées**
   - **6 feuilles du classeur HAMMER** (Pipes, Nœuds, Réservoirs, Pompes, HPT, Ventouses) en `orient='records'` optimisé
-  - **Données pompe** : rapport détaillé parsé + points de courbe H(Q) saisis
+  - **Batterie de pompes** : liste de rapports détaillés parsés + mode Continu/Parallèle
+  - **Profil en long + ventaises + vidanges** (Phase 3)
   - Texte complet de la prévisualisation du rapport
   - Les graphiques Matplotlib sont **automatiquement régénérés** à l'ouverture
 - **Rétrocompatibilité** : les `.hpi` v2.x restent lisibles par v3.0
@@ -43,15 +45,15 @@ Permettre aux ingénieurs hydrauliques de :
 - **Choix des unités d'affichage** (sidebar) — s'applique instantanément aux KPI, au graphique (axes + seuil), au rapport texte et à l'export Word
   - **Débit** : m³/h ou L/s
   - **Volume** : L ou m³
-- **Auto-détection de l'unité des fichiers CSV source** : scan des noms de colonnes (ex. `Flow (m3/h)`, `Volume of Gas (L)`)
+- **Auto-détection de l'unité des fichiers CSV source** : scan multi-feuilles Excel avec priorité à la feuille "Pompes"
 - **Override manuel** via menu déroulant "Unité :" à côté de chaque bouton d'import
 - **Seuil HPT éditable** dans la sidebar (suit l'unité de volume sélectionnée, ex. `200` en L ou `0.200` en m³)
 - **Stockage canonique interne** (L, m³/h) → conversions sans perte de précision
 
 ### Onglet 1 — Régime Permanent
 - Champs de saisie : **Nom du projet** et **Ingénieur responsable**
-- Importation du fichier station (CSV/Excel)
-- Extraction automatique du **Débit nominal Q (m³/h)** et de la **HMT (mCE)**
+- Importation du fichier station (CSV/Excel multi-feuilles)
+- Extraction automatique du **Débit nominal Q (m³/h)** et de la **HMT (mCE)** (priorité feuille "Pompes")
 - Affichage des colonnes détectées pour diagnostic
 
 ### Onglet 2 — Analyse Transitoire
@@ -63,11 +65,12 @@ Permettre aux ingénieurs hydrauliques de :
   - **4 mini-stats** : P max, P min, Q max pompe, Matériaux détectés
   - Bouton **Réinitialiser** pour vider le classeur chargé
   - Validation stricte : refuse si Pipes, Nœuds ou Pompes manquants
-- **Section « Courbe H(Q) Pompe »** :
-  - Bouton **Charger rapport pompe** (.rtf / .txt) — extrait les données pompe (ID, label, débit nominal, HMT, NPSH dispo.)
-  - **5 KPI** : Label, Q nominal, HMT pompe, NPSH disponible, Nombre de points courbe
+- **Section « Batterie de Pompes » (multi-pompes)** :
+  - Sélecteur de **mode** : Continu ou Parallèle
+  - **Liste des pompes** avec boutons +/retirer
+  - KPI de la pompe sélectionnée (Label, Q, HMT, NPSH, nb points)
   - **Saisie manuelle des points de courbe** : champs Q (L/s) + H (m) + boutons Ajouter / Effacer
-  - **Graphique Matplotlib H(Q)** : courbe interpolée (polyfit numpy), points saisis (pastilles orange), point nominal (losange rouge)
+  - **Graphique Matplotlib H(Q)** : courbe interpolée (polyfit numpy) + courbe combinée en mode parallèle
   - Adaptation automatique au thème clair/sombre
 - **Graphique HPT double-subplot interactif** :
   - Courbes Pression Min/Max le long de la conduite
@@ -84,18 +87,24 @@ Permettre aux ingénieurs hydrauliques de :
   - Tableau récapitulatif (6 composants du réseau)
   - Matériaux et diamètres des conduites
   - Pressions transitoires du modèle avec alertes conformité
-- **Section « Données Pompe »** dans le rapport Word :
-  - Tableau récapitulatif pompe (ID, label, débit, HMT, NPSH dispo., downstream pipe)
+- **Section « Batterie de Pompes »** dans le rapport Word :
+  - Tableau récapitulatif par pompe (ID, label, débit, HMT, NPSH dispo.)
   - Alerte NPSH si dispo. < requis
+- **Section « Profil en Long »** dans le rapport Word :
+  - Table ventaises (vert) + Table vidanges (rouge)
 - **Export .txt** (note brute)
-- **Export Word (.docx)** professionnel structuré :
-  - En-tête centré
-  - Tableau de métadonnées du projet
-  - Section Modèle Hydraulique
-  - Section Données Pompe
-  - Tableau de résultats avec codes couleurs vert/rouge (OK / Dépassement)
-  - Interprétation et recommandations par section (Surpression, Dépression, Volume HPT)
-  - **Graphique Matplotlib intégré automatiquement** dans le document
+- **Export Word (.docx)** professionnel structuré
+
+### Onglet 4 — Ventaises & Vidanges (Phase 3)
+- **Import du profil en long** (CSV : PK, Z) ou **profil exemple** démo
+- **Saisie du DN conduite** (mm)
+- **Calcul automatique** des ventaises et vidanges :
+  - Détection des points hauts/bas du profil
+  - Pré-dimensionnement ventaises (anti-vide, combinée, grande orifice)
+  - Localisation vidanges aux points bas entre 2 ventaises
+- **Graphique Matplotlib** : profil en long avec marqueurs ▲ ventaises / ▼ vidanges
+- **Tableaux récapitulatifs** : PK, côte, type, DN, distances
+- **Export CSV** des recommandations
 
 ---
 
@@ -132,16 +141,11 @@ Permettre aux ingénieurs hydrauliques de :
 - `flow_lps`, `pump_head_m`, `pressure_suction_bar`, `pressure_discharge_bar`
 - `npsh_available_m`, `npsh_required_m`, `controlled`, `hydraulic_grade_*`
 
-**Colonnes HAMMER reconnues automatiquement** (anglais et français) :
-- `Pressure (Minimum)` / `Pression Min` / `P Min`
-- `Pressure (Maximum)` / `Pression Max` / `P Max`
-- `Volume of Gas (Maximum)` / `Volume Gaz` / `Air Volume`
-- `Distance` / `Abscisse` / `Chainage` / `Station`
-- `Start Node` / `Stop Node` / `Diameter` / `Material`
+### Profil en Long (import pour ventaises/vidanges)
 
-**Gestion des formats numériques HAMMER** :
-- Espace insécable `\xa0` comme séparateur de milliers (`1\xa0029,00` → 1029.00)
-- Virgule décimale française (`12,5` → 12.5)
+| Format | Contenu |
+|--------|---------|
+| `.csv` | 3 colonnes : PK (m), Z (m), [pente %] — séparateur auto-détecté |
 
 ---
 
@@ -173,12 +177,15 @@ python main.py
 
 | Fichier | Description |
 |---------|-------------|
-| `main.py` | Script principal — application complète (~3600 lignes) |
-| `hammerpy_icon.ico` | Icône de l'application (éclair HammerPy, 6 tailles) |
-| `Flex Tables.xlsx` | Classeur HAMMER d'exemple (6 feuilles) |
-| `station_steady_state_test.csv` | Débit nominal et HMT d'une station AEP fictive |
-| `hpt_transient_test.csv` | Enveloppes de pression et volume de gaz |
-| `test_workbook_parser.py` | Tests unitaires (58 tests) |
+| `main.py` | Script principal — GUI + entry point (~2600 lignes) |
+| `utils.py` | Fonctions utilitaires : parse_number, constantes PN/Unités |
+| `data_parser.py` | Parser CSV/Excel multi-feuilles (station + HPT) |
+| `workbook.py` | WorkbookManager — chargement classeur HAMMER |
+| `pump_parser.py` | PumpReportParser — extraction données pompe depuis RTF |
+| `report_generator.py` | WordReportGenerator — génération rapport Word |
+| `air_valve_sizing.py` | AirValveSizing — dimensionnement ventaises/vidanges |
+| `hammerpy_icon.ico` | Icône de l'application |
+| `test_workbook_parser.py` | Tests unitaires (65 tests) |
 | `requirements.txt` | Dépendances Python |
 | `ROADMAP.md` | Feuille de route v3.0 |
 
@@ -187,54 +194,48 @@ python main.py
 ## 🗂️ Architecture du Code
 
 ```
-main.py
-├── _parse_number()                # Helper : parsing numérique HAMMER (nbsp, virgule FR)
-├── _find_col_in_df()              # Helper : recherche de colonnes par mots-clés
+main.py                          # GUI + entry point
+├── HammerPyApp (ctk.CTk)        # Interface graphique principale
+│   ├── _create_top_bar()        # Barre de menu Ouvrir/Enregistrer/Quitter
+│   ├── _create_sidebar()        # Configuration PN, thème, aide
+│   ├── Onglet 1                 # Régime permanent
+│   ├── Onglet 2                 # Analyse transitoire + Matplotlib + Multi-pompes
+│   ├── Onglet 3                 # Rapport et exports
+│   └── Onglet 4                 # Ventaises & Vidanges (Phase 3)
 │
-├── WorkbookManager                # Chargement classeur HAMMER (.xlsx/.xls)
-│   ├── load()                     # Détection format, chargement 6 feuilles
-│   ├── validate()                 # Vérifie les 3 feuilles obligatoires
-│   ├── get_summary()              # Résumé : counts, Pmax/Pmin, matériaux, diamètres
-│   └── get_sheet()                # Accès à une feuille par nom canonique
+├── utils.py                     # Fonctions utilitaires partagées
+│   ├── parse_number()           # Parsing numérique HAMMER (nbsp, virgule FR)
+│   ├── find_col_in_df()         # Recherche de colonnes par mots-clés
+│   ├── PN_CLASSES, PMIN_OPTIONS # Constantes de pression
+│   └── FLOW_UNITS, VOLUME_UNITS # Constantes d'unités
 │
-├── PumpReportParser               # Extraction données pompe depuis rapport RTF/TXT
-│   ├── load()                     # Lecture fichier, extraction texte RTF
-│   ├── _strip_rtf()               # Suppression balises RTF, images, fonttbl
-│   ├── _parse_report()            # Deux phases : ID/Label (General) + données opérées
-│   ├── add_curve_point()          # Ajout point Q/H avec tri automatique
-│   └── get_summary()              # Résumé pompe (label, Q, H, NPSH, nb points)
+├── data_parser.py               # Parser CSV/Excel robuste
+│   ├── HammerDataParser         # Parsing station + HPT
+│   ├── _load_file()             # Chargement universel (encodages, séparateurs)
+│   ├── parse_station_file()     # Régime permanent multi-feuilles (Q, HMT)
+│   └── parse_hpt_file()         # Transitoire (Pmin, Pmax, Vol.Gaz)
 │
-├── HammerDataParser               # Logique de parsing (CSV/Excel, robuste et flexible)
-│   ├── _load_file()               # Chargement universel avec gestion encodages
-│   ├── _find_col()                # Recherche flexible de colonnes par mots-clés
-│   ├── parse_station_file()       # Régime permanent (Q, HMT)
-│   └── parse_hpt_file()           # Transitoire (Pmin, Pmax, Vol.Gaz)
+├── workbook.py                  # WorkbookManager — Classeur HAMMER
+│   ├── load()                   # Détection format, chargement 6 feuilles
+│   ├── validate()               # Vérifie les 3 feuilles obligatoires
+│   └── get_summary()            # Résumé : counts, Pmax/Pmin, matériaux
 │
-├── WordReportGenerator            # Génération du rapport Word (.docx)
-│   └── generate()                 # Rapport complet avec sections Modèle + Pompe
+├── pump_parser.py               # Parser rapport pompe HAMMER
+│   ├── PumpReportParser         # Extraction 13 champs depuis RTF/TXT
+│   ├── _strip_rtf()             # Suppression balises RTF, images
+│   ├── add_curve_point()        # Ajout point Q/H avec tri automatique
+│   └── get_summary()            # Résumé pompe (label, Q, H, NPSH)
 │
-└── HammerPyApp (ctk.CTk)          # Interface graphique principale
-    ├── _create_top_bar()          # Barre de menu Ouvrir/Enregistrer/Enregistrer sous/Quitter
-    ├── _create_sidebar()          # Configuration PN, thème, aide
-    ├── Onglet 1                   # Régime permanent
-    ├── Onglet 2                   # Analyse transitoire + Matplotlib + Modèle HAMMER + Courbe H(Q)
-    │   ├── _import_workbook()     # Chargement classeur Flex Tables
-    │   ├── _reset_workbook()      # Réinitialisation du classeur
-    │   ├── _import_pump_report()  # Chargement rapport pompe RTF/TXT
-    │   ├── _reset_pump_report()   # Réinitialisation rapport pompe
-    │   ├── _on_add_pump_point()   # Ajout point courbe Q/H
-    │   ├── _on_clear_pump_points()# Effacement points courbe
-    │   ├── _update_pump_curve_chart() # Tracé courbe H(Q) interpolée
-    │   └── _update_chart()        # Tracé dynamique HPT avec seuils configurables
-    ├── Onglet 3                   # Rapport et exports
-    ├── Gestion de projet          # Sauvegarde/chargement .hpi v3.0 (JSON)
-    │   ├── _open_project()
-    │   ├── _save_project_as()
-    │   ├── _save_project_quick()
-    │   ├── _load_project()        # Restauration complète + régénération graphiques
-    │   └── _quit_app()            # Confirmation si modifications non sauvegardées
-    ├── _export_txt()              # Export note brute
-    └── _export_word()             # Export Word professionnel avec sections Modèle + Pompe
+├── report_generator.py          # Génération rapport Word (.docx)
+│   ├── WordReportGenerator      # Rapport complet multi-sections
+│   └── generate()               # Sections: Modèle + Pompe + Ventaises/vidanges
+│
+└── air_valve_sizing.py          # Dimensionnement ventaises/vidanges
+    ├── AirValveSizing           # Calcul points hauts/bas + sizing
+    ├── load_profile_csv()       # Import profil en long (CSV)
+    ├── size_ventaises()         # Pré-dimensionnement ventaises
+    ├── size_drains()            # Localisation vidanges
+    └── export_csv()             # Export recommandations
 ```
 
 ---
@@ -245,7 +246,7 @@ main.py
 # Lancer tous les tests
 python -m pytest test_workbook_parser.py -v
 
-# Résultat attendu : 58 passed
+# Résultat attendu : 65 passed
 ```
 
 **Couverture des tests :**
@@ -255,7 +256,8 @@ python -m pytest test_workbook_parser.py -v
 - 3 tests erreurs : extension invalide, fichier absent, feuille manquante
 - 4 tests rétrocompatibilité : CSV HPT + station lisibles
 - 12 tests `PumpReportParser` : chargement RTF réel, strip RTF, courbe points, interpolation, résumé
+- 7 tests `AirValveSizing` : profil, points hauts/bas, sizing ventaises/vidanges, DN, export CSV
 
 ---
 
-*Document mis à jour automatiquement — HammerPy Insight v3.0 Phase 2 — Juin 2026*
+*Document mis à jour — HammerPy Insight v3.0 Phase 3 — Juin 2026*

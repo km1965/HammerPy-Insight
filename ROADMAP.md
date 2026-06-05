@@ -3,14 +3,14 @@
 
 > **Statut** : 🟢 Phase 1 terminée — Parser classeur HAMMER + UI + .hpi v3.0 (juin 2026)
 > **Phase 2** : 🟢 Terminée — Parser rapport pompe RTF + UI courbe H(Q) graphique (juin 2026)
-> **Phase 3** : 📋 Prévue — Ventouses + profil en long
+> **Phase 3** : 🟢 Terminée — AirValveSizing + profil en long + ventaises + vidanges + UI + sérialisation + Word (juin 2026)
 > **Compatibilité ascendante** : `.hpi` v2.x → v3.0 (migration automatique) ✅
 
 ---
 
 ## 🎯 1. Vision & Objectifs
 
-### 1.1 Contexte actuel (v3.0 — Phase 2 terminée ✅)
+### 1.1 Contexte actuel (v3.0 — Phase 3 terminée ✅)
 HammerPy Insight v3 sait :
 - ✅ Charger et tracer les **enveloppes de pression** (Pmin, Pmax) issues de Bentley HAMMER
 - ✅ Vérifier la conformité vis-à-vis de la **classe PN** et de la **pression min admissible**
@@ -21,15 +21,22 @@ HammerPy Insight v3 sait :
 - ✅ **Sauvegarder les 6 feuilles** dans le .hpi v3.0 (optimisé orient='records')
 - ✅ **Section « Modèle Hydraulique »** dans le rapport Word
 - ✅ **Parser le rapport pompe détaillé** HAMMER (.rtf / .txt) — 13 champs extraits
+- ✅ **Multi-pompes** : batterie de pompes avec mode Continu/Parallèle + courbe combinée
 - ✅ **Saisie manuelle des points de courbe H(Q)** avec graphique Matplotlib interpolé
 - ✅ **UI Courbe H(Q) Pompe** : KPI, saisie Q/H, courbe interpolée + point nominal
-- ✅ **Section « Données Pompe »** dans le rapport Word avec alerte NPSH
-- ✅ **58 tests unitaires** validés
+- ✅ **Section « Batterie de Pompes »** dans le rapport Word avec alerte NPSH
+- ✅ **Profil en long** : import CSV ou profil exemple, détection points hauts/bas
+- ✅ **AirValveSizing** : pré-dimensionnement ventaises (anti-vide, combinée, grande orifice)
+- ✅ **DrainValveSizing** : localisation vidanges aux points bas entre ventaises
+- ✅ **Onglet UI « Ventaises & Vidanges »** : graphique + tableaux + export CSV
+- ✅ **Sérialisation Phase 3** : ventaises/vidanges dans .hpi (rétrocompatible v3.0)
+- ✅ **Section « Profil en Long »** dans le rapport Word (tableaux ventaises + vidanges)
+- ✅ **65 tests unitaires** validés
 
-### 1.2 Phase 3 — Ventouses & Vidanges (prévue)
-- ❌ La **localisation et le dimensionnement des ventouses** sur la conduite
-- ❌ Le **profil en long** de la conduite (altitudes, points hauts/bas)
-- ❌ Le **dimensionnement des vidanges** aux points bas entre deux ventouses
+### 1.2 Phase 4 — Module Système (prévue)
+- ❌ **SystemDiagnostics** : vérifications croisées (pompe ↔ réseau ↔ HPT ↔ vidanges)
+- ❌ **Indicateurs d'adéquation** : ✔ cohérent / ⚠ à vérifier / ✘ non conforme
+- ❌ **Section « Système complet »** dans le rapport Word
 
 | Objectif | Bénéfice utilisateur |
 |---|---|
@@ -360,21 +367,22 @@ HammerPy Insight v3 sait :
 |---|---|---|
 | **P1 — Parser classeur HAMMER** | WorkbookManager + 6 feuilles + .hpi v3.0 + Rapport Word | ✅ Terminé |
 | **P2 — Module Pompe** | PumpReportParser + UI courbe H(Q) + graphique + 58 tests | ✅ Terminé |
-| **P3 — Module Ventouses & Vidanges** | AirValveSizing + DrainValveSizing + profil en long + UI + tests | 📋 À démarrer |
-| **P4 — Module Système** | SystemDiagnostics + Rapport Word complet | 📋 |
+| **P3 — Module Ventouses & Vidanges** | AirValveSizing + DrainValveSizing + profil en long + UI + tests + sérialisation + Word | ✅ Terminé |
+| **P4 — Module Système** | SystemDiagnostics + Rapport Word complet | 📋 À démarrer |
 | **P5 — Documentation** | README, CHANGELOG, guide utilisateur v3.0 | 📋 |
 
 ---
 
 ## 🧪 6. Stratégie de tests
 
-### 6.1 Tests unitaires (58 tests ✅)
+### 6.1 Tests unitaires (65 tests ✅)
 - 19 tests `_parse_number()` : natif, None/NaN, nbsp, virgule FR, négatifs
 - 4 tests `_find_col_in_df()` : match exact, partiel, casse
 - 17 tests intégration workbook : chargement, validation, résumé
 - 3 tests erreurs : extension invalide, fichier absent, feuille manquante
 - 4 tests rétrocompatibilité : CSV HPT + station lisibles
 - 12 tests `PumpReportParser` : RTF réel, strip RTF, courbe points, interpolation, résumé
+- 7 tests `AirValveSizing` : profil, points hauts/bas, sizing, DN, export CSV
 
 ### 6.2 Tests Phase 3 (prévu)
 - `AirValveSizing` : détection points hauts, dimensionnement ventouses (8+ cas)
@@ -410,7 +418,7 @@ HammerPy Insight v3 sait :
 
 | Métrique | Cible | Actuel |
 |---|---|---|
-| Couverture de tests unitaires | > 85% | 58 tests ✅ |
+| Couverture de tests unitaires | > 85% | 65 tests ✅ |
 | Bugs de régression | < 5 | 0 ✅ |
 | Temps de chargement `.hpi` v3.0 (< 5 MB) | < 1 s | ✅ |
 | Temps d'export Word complet (< 15 pages) | < 5 s | ✅ |
@@ -422,11 +430,17 @@ HammerPy Insight v3 sait :
 ### A. Arborescence actuelle
 ```
 HammerPy Insight/
-├── main.py                          # ~3600 lignes (Phase 1 + 2)
+├── main.py                          # GUI + entry point (~2600 lignes)
+├── utils.py                         # Fonctions utilitaires, constantes
+├── data_parser.py                   # Parser CSV/Excel multi-feuilles
+├── workbook.py                      # WorkbookManager — classeur HAMMER
+├── pump_parser.py                   # PumpReportParser — rapport pompe RTF
+├── report_generator.py              # WordReportGenerator — rapport Word
+├── air_valve_sizing.py              # AirValveSizing — ventaises/vidanges
 ├── hammerpy_icon.ico                # Icône multi-tailles (370 Ko)
-├── test_workbook_parser.py          # 58 tests unitaires
+├── test_workbook_parser.py          # 65 tests unitaires
 ├── requirements.txt                 # Dépendances
-├── README.md                        # Documentation v3.0 Phase 2
+├── README.md                        # Documentation v3.0 Phase 3
 ├── ROADMAP.md                       # Ce document
 ├── Flex Tables.xlsx                 # Classeur HAMMER exemple (exclu du dépôt)
 ├── station_steady_state_test.csv    # CSV test station
@@ -451,4 +465,5 @@ HammerPy Insight/
 
 *Document rédigé le 4 juin 2026 — HammerPy Insight v3.0 Phase 2 — Roadmap*
 *Phase 2 terminée le 5 juin 2026 — Parser rapport pompe + UI courbe H(Q)*
-*Prochaine revue : démarrage Phase 3 (module Ventouses)*
+*Phase 3 terminée le 5 juin 2026 — AirValveSizing + profil en long + sérialisation + Word*
+*Prochaine revue : démarrage Phase 4 (module Système)*
