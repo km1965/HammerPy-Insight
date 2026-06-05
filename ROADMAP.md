@@ -26,13 +26,15 @@ HammerPy Insight v3 sait :
 - ✅ **Section « Données Pompe »** dans le rapport Word avec alerte NPSH
 - ✅ **58 tests unitaires** validés
 
-### 1.2 Phase 3 — Ventouses (prévue)
+### 1.2 Phase 3 — Ventouses & Vidanges (prévue)
 - ❌ La **localisation et le dimensionnement des ventouses** sur la conduite
 - ❌ Le **profil en long** de la conduite (altitudes, points hauts/bas)
+- ❌ Le **dimensionnement des vidanges** aux points bas entre deux ventouses
 
 | Objectif | Bénéfice utilisateur |
 |---|---|
 | **Pré-dimensionner les ventouses** le long du profil en long | Recommandations automatiques (DN, type, position) |
+| **Pré-dimensionner les vidanges** aux points bas | Emplacement optimal entre deux ventouses, DN recommandé |
 | Calculer le **NPSH disponible** vs NPSH requis (approfondi) | Détection précoce des risques de cavitation |
 | **Modéliser le profil en long** de la conduite | Visualisation des pentes, points critiques |
 | Vérifier l'**adéquation pompe × réseau** | Superposition graphique HMT pompe vs pertes de charge réseau |
@@ -103,7 +105,20 @@ HammerPy Insight v3 sait :
 - **Tableau de localisation** : PK, côte, type recommandé, DN suggéré
 - **Chart** : profil en long de la conduite avec marqueurs des ventouses
 
-#### B. Module Système complet
+#### B. Vidanges (drainage)
+- **Localisation automatique** des vidanges aux points bas du profil en long
+- **Règle métier** : une vidange au point bas entre deux ventouses consécutives
+- **Algorithme de positionnement** :
+  1. Identifier les ventouses (points hauts)
+  2. Pour chaque segment entre 2 ventouses, trouver le point bas (minimum local d'altitude)
+  3. Si le point bas existe et est suffisamment éloigné des ventouses (> 50m), placer une vidange
+  4. Sinon, recommander une vidange combinée avec la ventouse la plus proche
+- **Dimensionnement** : DN ≥ DN_conduite / 10, vanne d'arrêt + bride de vidange
+- **Paramètres** : longueur max entre 2 vidanges (défaut : 500m), pente min pour drainage
+- **Tableau de localisation** : PK, côte, type vidange, DN, distance aux ventouses voisines
+- **Chart** : profil en long avec marqueurs ventouses (▲) et vidanges (▼)
+
+#### C. Module Système complet
 - **Vue d'ensemble** récapitulant :
   - Pompe sélectionnée + point de fonctionnement
   - Réseau : DN, longueur, rugosité, pertes
@@ -129,8 +144,8 @@ HammerPy Insight v3 sait :
 │  UI (CustomTkinter)                                     │
 │  ┌─────────┬─────────┬─────────┬─────────┬─────────┐   │
 │  │ Station │ Transi- │ Rapport │  Pompe  │Ventouses│   │
-│  │ (v2)    │ toire   │ (v2)    │ (✅ v3) │(📋 v3)  │   │
-│  │         │ (v2)    │         │         │         │   │
+│  │ (v2)    │ toire   │ (v2)    │ (✅ v3) │+Vidanges│   │
+│  │         │ (v2)    │         │         │(📋 v3)  │   │
 │  └─────────┴─────────┴─────────┴─────────┴─────────┘   │
 │                        │                                │
 │  ┌─────────────────────▼─────────────────────────┐     │
@@ -138,6 +153,7 @@ HammerPy Insight v3 sait :
 │  │  • HammerDataParser (v2)                       │     │
 │  │  • PumpReportParser     ✅ NEW (Phase 2)       │     │
 │  │  • AirValveSizing         ← NEW (Phase 3)      │     │
+│  │  • DrainValveSizing       ← NEW (Phase 3)      │     │
 │  │  • SystemDiagnostics      ← NEW (Phase 3)      │     │
 │  │  • WordReportGenerator (étendu)                │     │
 │  └────────────────────┬──────────────────────────┘     │
@@ -155,8 +171,9 @@ HammerPy Insight v3 sait :
 | Classe | Responsabilité | Statut |
 |---|---|---|
 | `PumpReportParser` | Extraction données pompe depuis rapport RTF/TXT | ✅ Terminé |
-| `AirValveSizing` | Règles de dimensionnement, détection points hauts/bas | 📋 Phase 3 |
-| `SystemDiagnostics` | Vérifications croisées (pompe ↔ réseau ↔ HPT) | 📋 Phase 3 |
+| `AirValveSizing` | Règles de dimensionnement ventouses, détection points hauts | 📋 Phase 3 |
+| `DrainValveSizing` | Localisation vidanges aux points bas entre ventouses | 📋 Phase 3 |
+| `SystemDiagnostics` | Vérifications croisées (pompe ↔ réseau ↔ HPT ↔ vidanges) | 📋 Phase 3 |
 
 > **Décision** : tout reste dans `main.py` pour la v3.0 (cohérence avec v2.x monolithique). Extraction en modules séparés si la base dépasse ~3500 lignes.
 
@@ -206,6 +223,21 @@ HammerPy Insight v3 sait :
     ],
     "pipe_dn_mm": 250,
     "recommendations": []
+  },
+
+  "drain_valves": {                                ← NEW (Phase 3)
+    "recommendations": [
+      {
+        "pk_m": 375.0,
+        "z_m": 130.5,
+        "type": "Vidange à bride",
+        "dn_mm": 25,
+        "left_ventouse_pk": 250.0,
+        "right_ventouse_pk": 500.0,
+        "distance_to_left_m": 125.0,
+        "distance_to_right_m": 125.0
+      }
+    ]
   },
 
   "system_diagnostics": []                         ← NEW (Phase 3)
@@ -279,7 +311,46 @@ HammerPy Insight v3 sait :
 - **§2. Modèle Hydraulique** : tableau récap 6 composants, matériaux, pressions
 - **§2b. Données Pompe** : tableau récap 10 lignes, alerte NPSH
 - **§3. Résultats Transitoires** : Pmin/Pmax/Vol.Gaz
-- **§4. Interprétation & Recommandations**
+- **§4. Profil en Long** : tableau ventouses + vidanges, graphique profil
+- **§5. Interprétation & Recommandations**
+
+### 4.4 Onglet 4 — Ventouses & Vidanges (Phase 3)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  💨  Profil en Long & Dimensionnement Ventouses + Vidanges   │
+├──────────────────────────────────────────────────────────────┤
+│  [Importer profil (.csv)]   Profil en long — 12 points        │
+│                                                               │
+│  ┌───── Profil en long (côte TN) ────────────────────────┐   │
+│  │   Z (m)                                                │   │
+│  │  145│      ●─●                    ▲ V2 (ventouse)      │   │
+│  │     │   ●─╱    ╲─●                                     │   │
+│  │  135│  ╱          ╲                                     │   │
+│  │     │ ╱            ●─●                                  │   │
+│  │  125│●          ▼ D1          ●─●                   ●   │   │
+│  │     │        (vidange)                                 │   │
+│  │     └────────────────────────────────────────▶ PK (m)   │   │
+│  │       0      250     500     750    1000               │   │
+│  │              ▲ V1              ▲ V3   ▲ V4             │   │
+│  └─────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  ┌───── Ventouses ───────────────────────────────────────┐   │
+│  │  PK (m) │  Côte (m) │ Type              │ DN (mm)  │  │  │
+│  │  ───────┼───────────┼───────────────────┼──────────│  │  │
+│  │   250   │  138.2    │ Combinée GO       │   80     │  │  │
+│  │   500   │  142.0    │ Anti-vide simple  │   50     │  │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  ┌───── Vidanges ────────────────────────────────────────┐   │
+│  │  PK (m) │  Côte (m) │ Type         │ DN  │ Dist.V1/V2│  │
+│  │  ───────┼───────────┼──────────────┼─────┼───────────│  │
+│  │   375   │  130.5    │ À bride      │  25 │ 125/125 m │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                               │
+│  [Exporter liste ventouses + vidanges (.csv)]                 │
+└──────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -289,7 +360,7 @@ HammerPy Insight v3 sait :
 |---|---|---|
 | **P1 — Parser classeur HAMMER** | WorkbookManager + 6 feuilles + .hpi v3.0 + Rapport Word | ✅ Terminé |
 | **P2 — Module Pompe** | PumpReportParser + UI courbe H(Q) + graphique + 58 tests | ✅ Terminé |
-| **P3 — Module Ventouses** | AirValveSizing + profil en long + UI + tests | 📋 À démarrer |
+| **P3 — Module Ventouses & Vidanges** | AirValveSizing + DrainValveSizing + profil en long + UI + tests | 📋 À démarrer |
 | **P4 — Module Système** | SystemDiagnostics + Rapport Word complet | 📋 |
 | **P5 — Documentation** | README, CHANGELOG, guide utilisateur v3.0 | 📋 |
 
@@ -306,7 +377,8 @@ HammerPy Insight v3 sait :
 - 12 tests `PumpReportParser` : RTF réel, strip RTF, courbe points, interpolation, résumé
 
 ### 6.2 Tests Phase 3 (prévu)
-- `AirValveSizing` : détection points critiques, dimensionnement (8+ cas)
+- `AirValveSizing` : détection points hauts, dimensionnement ventouses (8+ cas)
+- `DrainValveSizing` : localisation vidanges aux points bas, distance aux ventouses (6+ cas)
 - `SystemDiagnostics` : chaque check avec cas OK / WARN / FAIL / NA
 - Migration v2.x → v3.0 : lecture de 3 fichiers de test legacy
 
