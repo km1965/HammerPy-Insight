@@ -1,0 +1,20 @@
+# Dossiers
+__pycache__/
+env/
+.vscode/
+
+# Fichiers Python
+*.pyc
+*.pyo
+
+# Tests
+.pytest_cache/
+
+# Données HAMMER volumineuses / personnelles (fournies par l'utilisateur)
+Flex Tables.xlsx
+pump curve.PNG
+pump curve.pdf
+Pump detailed report.rtf
+
+# Fichiers de configuration locaux
+GitHub données.PNG
