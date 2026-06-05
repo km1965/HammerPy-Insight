@@ -2,7 +2,7 @@
 ## *« Pompes & Ventouses : du réservoir HPT au système complet »*
 
 > **Statut** : 🟢 Phase 1 terminée — Parser classeur HAMMER + UI + .hpi v3.0 (juin 2026)
-> **Phase 2** : 📋 En cours — Courbe H(Q) pompe + NPSH
+> **Phase 2** : 🟢 Terminée — Parser rapport pompe RTF + UI courbe H(Q) graphique (juin 2026)
 > **Phase 3** : 📋 Prévue — Ventouses + profil en long
 > **Compatibilité ascendante** : `.hpi` v2.x → v3.0 (migration automatique) ✅
 
@@ -10,7 +10,7 @@
 
 ## 🎯 1. Vision & Objectifs
 
-### 1.1 Contexte actuel (v3.0 — Phase 1 terminée ✅)
+### 1.1 Contexte actuel (v3.0 — Phase 2 terminée ✅)
 HammerPy Insight v3 sait :
 - ✅ Charger et tracer les **enveloppes de pression** (Pmin, Pmax) issues de Bentley HAMMER
 - ✅ Vérifier la conformité vis-à-vis de la **classe PN** et de la **pression min admissible**
@@ -20,20 +20,21 @@ HammerPy Insight v3 sait :
 - ✅ **Afficher le résumé du modèle** : counts, Pmax/Pmin, matériaux, diamètres, Qmax pompe
 - ✅ **Sauvegarder les 6 feuilles** dans le .hpi v3.0 (optimisé orient='records')
 - ✅ **Section « Modèle Hydraulique »** dans le rapport Word
+- ✅ **Parser le rapport pompe détaillé** HAMMER (.rtf / .txt) — 13 champs extraits
+- ✅ **Saisie manuelle des points de courbe H(Q)** avec graphique Matplotlib interpolé
+- ✅ **UI Courbe H(Q) Pompe** : KPI, saisie Q/H, courbe interpolée + point nominal
+- ✅ **Section « Données Pompe »** dans le rapport Word avec alerte NPSH
+- ✅ **58 tests unitaires** validés
 
-### 1.2 Phase 2 — Pompes (en cours)
-La v3.0 Phase 1 charge les données transitoires des pompes, mais reste muette sur :
-- ❌ Le **comportement de la pompe** (point de fonctionnement, risque de cavitation, NPSH disponible)
-- ❌ L'**adéquation pompe × réseau** (interaction courbe pompe H(Q) × courbe réseau)
-
-### 1.3 Phase 3 — Ventouses (prévue)
+### 1.2 Phase 3 — Ventouses (prévue)
 - ❌ La **localisation et le dimensionnement des ventouses** sur la conduite
+- ❌ Le **profil en long** de la conduite (altitudes, points hauts/bas)
 
 | Objectif | Bénéfice utilisateur |
 |---|---|
-| Intégrer la **courbe caractéristique de pompe** H(Q), η(Q), P(Q) | Valider le point de fonctionnement et le rendement |
-| Calculer le **NPSH disponible** vs NPSH requis | Détection précoce des risques de cavitation |
 | **Pré-dimensionner les ventouses** le long du profil en long | Recommandations automatiques (DN, type, position) |
+| Calculer le **NPSH disponible** vs NPSH requis (approfondi) | Détection précoce des risques de cavitation |
+| **Modéliser le profil en long** de la conduite | Visualisation des pentes, points critiques |
 | Vérifier l'**adéquation pompe × réseau** | Superposition graphique HMT pompe vs pertes de charge réseau |
 | Étendre la **note technique Word** avec ces analyses | Dossier d'étude complet en un clic |
 
@@ -61,21 +62,33 @@ La v3.0 Phase 1 charge les données transitoires des pompes, mais reste muette s
 - Matériaux et diamètres des conduites
 - Pressions transitoires du modèle avec alertes conformité
 
-### 2.2 📋 Phase 2 — Module Pompes (En cours)
+### 2.2 ✅ Phase 2 — Module Pompes (Terminée — Juin 2026)
 
-#### A. Courbe caractéristique H(Q)
-- Saisie / import d'une **courbe caractéristique** de pompe (H(Q), η(Q), P(Q)) :
-  - Saisie manuelle (table éditable)
-  - Import CSV (3 colonnes : Q, H, η)
-  - **Auto-détection** du format (m³/h ou L/s, mCE ou m, kW ou CV)
-- **Paramètres** : vitesse de rotation N (tr/min), diamètre de roue, NPSH requis (NPSH₃%)
-- **Calculs** :
-  - **Point de fonctionnement** (intersection courbe pompe × courbe réseau) — résolution itérative
-  - **Rendement** au point de fonctionnement
-  - **Puissance absorbée** P = ρgQH/η
-  - **NPSH disponible** = (P_atm − P_vapeur) / (ρg) ± ΔH_statique − pertes
-- **Diagnostic** : concordance Q,HMT avec les valeurs extraites du CSV station
-- **Chart** : courbe H(Q) superposée à la courbe réseau, marqueur du point de fonctionnement
+#### A. PumpReportParser (nouveau ✅)
+- Extraction **13 champs** depuis le rapport détaillé HAMMER (.rtf / .txt)
+- Deux phases de parsing : ID/Label (section General) + données opérées (section Pump Data)
+- `_strip_rtf()` : suppression balises RTF, images (shppict/pict), fonttbl, contrôles
+- Gestion des nombres de positionnement RTF (ex: -229, -432)
+- **Filtrage `_is_positioning_number()`** : négatifs entiers > 20
+
+#### B. UI Courbe H(Q) Pompe (nouveau ✅)
+- **5 KPI** : Label, Q nominal (L/s), HMT pompe (m), NPSH disponible (m), Nombre de points courbe
+- **Saisie manuelle** : champs Q (L/s) + H (m) + boutons Ajouter / Effacer tout
+- **Liste des points** : zone texte avec tableau formaté (#, Q, H)
+- **Graphique Matplotlib** : courbe interpolée (numpy polyfit, deg ≤ 3), points saisis (pastilles orange), point nominal (losange rouge)
+- Adaptation automatique au thème clair/sombre
+
+#### C. Intégration sérialisation (mise à jour ✅)
+- Section `"pump"` dans le `.hpi` v3.0 : `filepath`, `parsed` dict, `curve_points` list
+- Rétrocompatibilité v2.x préservée
+
+#### D. Rapport Word — Section Pompe (mise à jour ✅)
+- Nouvelle section **« 2b. Données Pompe »** avec tableau récapitulatif 10 lignes
+- Alerte NPSH si disponible < requis
+- Couleur thème violet (#8b5cf6)
+
+#### E. Tests (58 tests validés ✅)
+- 12 tests `PumpReportParser` : chargement RTF réel, strip RTF, courbe points, interpolation, résumé
 
 ### 2.3 📋 Phase 3 — Module Ventouses (Prévue)
 
@@ -90,14 +103,14 @@ La v3.0 Phase 1 charge les données transitoires des pompes, mais reste muette s
 - **Tableau de localisation** : PK, côte, type recommandé, DN suggéré
 - **Chart** : profil en long de la conduite avec marqueurs des ventouses
 
-#### C. Module Système complet
+#### B. Module Système complet
 - **Vue d'ensemble** récapitulant :
   - Pompe sélectionnée + point de fonctionnement
   - Réseau : DN, longueur, rugosité, pertes
   - Protection : réservoir HPT (déjà en v2), ventouses recommandées
 - **Indicateurs d'adéquation** : ✔ cohérent / ⚠ à vérifier / ✘ non conforme
 
-### 2.2 🚫 Hors périmètre v3.0 (différé en v3.1+)
+### 2.4 🚫 Hors périmètre v3.0 (différé en v3.1+)
 - Calcul réseau maillé (loi des mailles) — v3.1
 - Courbes de pompe à vitesse variable (loi d'affinité) — v3.1
 - Simulation transitoire intégrée (MOC) sans HAMMER — v4.0
@@ -116,16 +129,16 @@ La v3.0 Phase 1 charge les données transitoires des pompes, mais reste muette s
 │  UI (CustomTkinter)                                     │
 │  ┌─────────┬─────────┬─────────┬─────────┬─────────┐   │
 │  │ Station │ Transi- │ Rapport │  Pompe  │Ventouses│   │
-│  │ (v2)    │ toire   │ (v2)    │ (NEW v3)│(NEW v3) │   │
+│  │ (v2)    │ toire   │ (v2)    │ (✅ v3) │(📋 v3)  │   │
 │  │         │ (v2)    │         │         │         │   │
 │  └─────────┴─────────┴─────────┴─────────┴─────────┘   │
 │                        │                                │
 │  ┌─────────────────────▼─────────────────────────┐     │
 │  │  Métier (Logique)                              │     │
 │  │  • HammerDataParser (v2)                       │     │
-│  │  • PumpCurveCalculator    ← NEW                │     │
-│  │  • AirValveSizing         ← NEW                │     │
-│  │  • SystemDiagnostics      ← NEW                │     │
+│  │  • PumpReportParser     ✅ NEW (Phase 2)       │     │
+│  │  • AirValveSizing         ← NEW (Phase 3)      │     │
+│  │  • SystemDiagnostics      ← NEW (Phase 3)      │     │
 │  │  • WordReportGenerator (étendu)                │     │
 │  └────────────────────┬──────────────────────────┘     │
 │                       │                                │
@@ -137,15 +150,13 @@ La v3.0 Phase 1 charge les données transitoires des pompes, mais reste muette s
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Nouvelles classes / modules
+### 3.2 Classes / modules
 
-| Classe | Responsabilité | Fichier |
+| Classe | Responsabilité | Statut |
 |---|---|---|
-| `PumpCurveCalculator` | Calcul point de fonctionnement, NPSH, puissance, rendement | `main.py` (ou `pump_engine.py` si volume) |
-| `AirValveSizing` | Règles de dimensionnement, détection points hauts/bas | `main.py` |
-| `PumpProfileData` (dataclass) | Modèle de données pompe | `main.py` |
-| `AirValveData` (dataclass) | Modèle de données ventouse | `main.py` |
-| `SystemDiagnostics` | Vérifications croisées (pompe ↔ réseau ↔ HPT) | `main.py` |
+| `PumpReportParser` | Extraction données pompe depuis rapport RTF/TXT | ✅ Terminé |
+| `AirValveSizing` | Règles de dimensionnement, détection points hauts/bas | 📋 Phase 3 |
+| `SystemDiagnostics` | Vérifications croisées (pompe ↔ réseau ↔ HPT) | 📋 Phase 3 |
 
 > **Décision** : tout reste dans `main.py` pour la v3.0 (cohérence avec v2.x monolithique). Extraction en modules séparés si la base dépasse ~3500 lignes.
 
@@ -164,404 +175,196 @@ La v3.0 Phase 1 charge les données transitoires des pompes, mais reste muette s
   "hpt":     { ... },
   "report_text": "...",
 
-  "pump": {                                       ← NEW
-    "name": "Grundfos CR 64-3",
-    "speed_rpm": 2900,
-    "curve_data": [                              ← Q (m³/h), H (m), η (%), P (kW)
-      [0.0,    72.0, 0.0,  3.5],
-      [20.0,   70.5, 35.0, 4.2],
-      [40.0,   67.0, 58.0, 4.9],
-      [60.0,   61.5, 68.0, 5.5],
-      [80.0,   54.0, 64.0, 6.1],
-      [100.0,  44.5, 52.0, 6.4]
-    ],
-    "npsh_required_m": 3.2,
-    "npsh_available_m": 6.8,                     ← calculé
-    "operating_point": {                          ← calculé
-      "flow_m3h": 64.5,
-      "head_m": 60.2,
-      "efficiency_pct": 67.8,
-      "power_kw": 5.1
+  "pump": {                                       ✅ NEW (Phase 2)
+    "filepath": "Pump detailed report.rtf",
+    "parsed": {
+      "pump_id": "122",
+      "label": "PMP-2",
+      "downstream_pipe": "P-4",
+      "flow_lps": 100.0,
+      "pump_head_m": 110.80,
+      "npsh_available_m": 15.35,
+      "npsh_required_m": null,
+      "pressure_suction_bar": 0.54,
+      "pressure_discharge_bar": 11.38,
+      "speed_factor": 1.0,
+      "status_initial": "On",
+      "controlled": false
     },
-    "source_unit_flow": "m³/h",
-    "source_unit_head": "mCE"
-  },
-
-  "air_valves": {                                  ← NEW
-    "profile": [                                  ← PK (m), Z (m), slope (%)
-      [0,    125.5, 0.0],
-      [250,  138.2, 5.1],
-      [500,  142.0, 1.5],
-      [750,  135.8, -2.5],
-      [1000, 128.0, -3.1]
-    ],
-    "pipe_dn_mm": 250,
-    "recommendations": [                           ← calculé
-      {"pk_m": 500,  "z_m": 142.0, "type": "Combinée grande orifice", "dn_mm": 80, "reason": "Point haut"},
-      {"pk_m": 1000, "z_m": 128.0, "type": "Anti-vide simple",       "dn_mm": 50, "reason": "Extrémité aval"}
+    "curve_points": [
+      {"flow_lps": 0.0,   "head_m": 200.0},
+      {"flow_lps": 75.0,  "head_m": 150.0},
+      {"flow_lps": 150.0, "head_m": 100.0}
     ]
   },
 
-  "system_diagnostics": [                          ← NEW (résultats agrégés)
-    {"check": "Adéquation pompe × Q nominal",     "status": "OK",   "value": "..."},
-    {"check": "NPSH disponible > NPSH requis",    "status": "OK",   "value": "..."},
-    {"check": "Ventouses aux points hauts",        "status": "WARN", "value": "..."},
-    ...
-  ]
+  "air_valves": {                                  ← NEW (Phase 3)
+    "profile": [
+      [0,    125.5, 0.0],
+      [250,  138.2, 5.1],
+      [500,  142.0, 1.5]
+    ],
+    "pipe_dn_mm": 250,
+    "recommendations": []
+  },
+
+  "system_diagnostics": []                         ← NEW (Phase 3)
 }
 ```
 
-**Rétrocompatibilité** : un `.hpi` v2.0 est lisible par v3.0. Les sections `pump`, `air_valves`, `system_diagnostics` sont simplement absentes → onglet "Pompe" et "Ventouses" affichent un état vide + bouton "Démarrer l'analyse".
+**Rétrocompatibilité** : un `.hpi` v2.0 est lisible par v3.0. Les sections `pump` et `air_valves` sont simplement absentes → l'onglet Affiche un état vide + bouton "Charger".
 
 ---
 
 ## 🖥️ 4. Architecture UI (CustomTkinter)
 
-### 4.1 Nouvelle organisation des onglets
+### 4.1 Organisation des onglets
 
 ```
-[ Onglet 1 — Régime Permanent ] (v2)    [ Onglet 2 — Pompe ]        (NEW v3)
-[ Onglet 3 — Analyse Transitoire ] (v2)  [ Onglet 4 — Ventouses ]    (NEW v3)
-[ Onglet 5 — Rapport Technique ] (v2 + nouvelles sections)
+[ Onglet 1 — Régime Permanent ]     [ Onglet 2 — Analyse Transitoire ]
+                                    [ Onglet 3 — Rapport Technique ]
 ```
 
-### 4.2 Onglet 2 (Pompe) — Maquette
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  ⚙️  Caractéristique & Point de Fonctionnement de la Pompe    │
-├──────────────────────────────────────────────────────────────┤
-│  [Importer courbe (.csv)]   Aucun fichier       [Unité: Auto▾]│
-│                                                               │
-│  ┌───── Courbe caractéristique ─────┐  ┌─── KPI ──────────┐  │
-│  │  H (m)                            │  │ Q fonctionn.     │  │
-│  │  ▲  ╲                              │  │ 64.5 m³/h        │  │
-│  │  │   ╲___                          │  │                  │  │
-│  │  │       ╲___                      │  │ HMT au point     │  │
-│  │  │           ╲___  ★ Point fonct.  │  │ 60.2 mCE         │  │
-│  │  └──────────────────▶ Q (m³/h)     │  │                  │  │
-│  │   + courbe réseau                  │  │ Rendement η      │  │
-│  │   + ligne de pompe                 │  │ 67.8 %           │  │
-│  └────────────────────────────────────┘  │                  │  │
-│                                          │ Puissance P      │  │
-│  ┌───── NPSH ────────────────────────┐  │ 5.1 kW           │  │
-│  │ NPSH requis  : 3.20 m              │  └──────────────────┘  │
-│  │ NPSH dispo   : 6.80 m              │                         │
-│  │ Marge        : +3.60 m ✔           │  [✔ Marge satisfaisante]│
-│  └────────────────────────────────────┘                         │
-│                                                               │
-│  Paramètres : [Nom: _________] [N (tr/min): 2900] [NPSH req: 3.2]│
-└──────────────────────────────────────────────────────────────┘
-```
-
-### 4.3 Onglet 4 (Ventouses) — Maquette
+### 4.2 Onglet 2 — Analyse Transitoire (disposition actuelle)
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  💨  Profil en Long & Dimensionnement des Ventouses           │
+│  Analyse des Pressions & Volumes Transitoires                │
 ├──────────────────────────────────────────────────────────────┤
-│  [Importer profil (.csv)]   Profil en long — 12 points        │
-│                                                               │
-│  ┌───── Profil en long (côte TN) ────────────────────────┐   │
-│  │   Z (m)                                                │   │
-│  │  145│      ●─●                                          │   │
-│  │     │   ●─╱    ╲─●                                      │   │
-│  │  135│  ╱          ╲                                      │   │
-│  │     │ ╱            ●─●                                   │   │
-│  │  125│●                                                ●│   │
-│  │     └────────────────────────────────────────▶ PK (m)   │   │
-│  │       0      250     500     750    1000                 │   │
-│  │              ▼ V1    ▼ V2   ▼ V3   ▼ V4  (ventouses)   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                               │
-│  ┌───── Recommandations ─────────────────────────────────┐  │
-│  │  PK (m) │  Côte (m) │ Type              │ DN (mm) │ R │ │
-│  │  ───────┼───────────┼───────────────────┼─────────┼─── │ │
-│  │   500   │  142.0    │ Combinée GO       │   80    │PH │ │
-│  │   750   │  135.8    │ Anti-vide simple  │   50    │PD │ │
-│  │  1000   │  128.0    │ Anti-vide simple  │   50    │EX │ │
-│  └────────────────────────────────────────────────────────┘  │
-│                                                               │
-│  [Exporter liste ventouses (.csv)]                            │
+│  [Importer données HPT (.csv/.xlsx)]  Aucun fichier         │
+│                                                              │
+│  ┌── KPI ──────────────────────────────────────────────┐    │
+│  │ Pression Min    │ Pression Max    │ Volume Gaz Max   │    │
+│  │ -0.15 bar       │ 14.20 bar       │ 185.3 L          │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│  ┌── MODÈLE HAMMER ────────────────────────────────────┐    │
+│  │ [Charger classeur (.xlsx)]  Flex Tables.xlsx         │    │
+│  │ Pipes: 12 │ Nœuds: 8 │ Pompes: 2 │ Réservoirs: 1   │    │
+│  │ P max: 14.2 bar │ P min: -0.15 bar │ Matériaux: PE  │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│  ┌── COURBE H(Q) POMPE ────────────────────────────────┐    │
+│  │ [Charger rapport pompe (.rtf)]  Pump report.rtf      │    │
+│  │ Pompe: PMP-2 │ Q nom: 100.0 L/s │ HMT: 110.8 m     │    │
+│  │ NPSH dispo: 15.3 m │ Pts courbe: 3                  │    │
+│  │                                                       │    │
+│  │ Q (L/s): [75]  H (m): [150]  [+ Ajouter] [Effacer] │    │
+│  │  #     Q (L/s)       H (m)                           │    │
+│  │  ──────────────────────────────                      │    │
+│  │  1       0.0         200.0                           │    │
+│  │  2      75.0         150.0                           │    │
+│  │  3     150.0         100.0                           │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│  ┌── Graphique H(Q) ───────────────────────────────────┐    │
+│  │  H (m)                                                │    │
+│  │  200│●                                                 │    │
+│  │     │ ╲                                               │    │
+│  │  150│  ●─ ─ ─ ─ ─ ★ (nominal)                        │    │
+│  │     │      ╲                                          │    │
+│  │  100│       ●                                         │    │
+│  │     └──────────────────────▶ Q (L/s)                  │    │
+│  │       0    50   100   150                             │    │
+│  └──────────────────────────────────────────────────────┘    │
+│                                                              │
+│  ┌── Graphique HPT ────────────────────────────────────┐    │
+│  │  Pression Min/Max + Volume Gaz                       │    │
+│  └──────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 4.4 Sidebar — Nouvelles sections
+### 4.3 Rapport (Onglet 3) — Sections Word
 
-```
-ACTIF                                          ← NOUVEAU
-─────────────────
-Pompe installée  : [✔]                         ← v3 (bascule onglet 2)
-Ventouses        : [✔]                         ← v3 (bascule onglet 4)
-```
-
-### 4.5 Rapport (Onglet 5) — Nouvelles sections Word
-
-Insertion automatique de **3 nouveaux chapitres** dans `WordReportGenerator.generate()` :
-
-- **§5  Caractéristique de la Pompe & Point de Fonctionnement**
-  - Tableau : Nom, N, NPSH req, Q, HMT, η, P
-  - Image : graphique H(Q) avec point de fonctionnement
-  - Diagnostic : marges, adéquation
-
-- **§6  Ventousage & Protection Anti-Vide**
-  - Tableau : PK, Côte, Type, DN
-  - Image : profil en long avec emplacements
-  - Diagnostic : couverture, conformités
-
-- **§7  Synthèse Système & Recommandations**
-  - Tableau de diagnostic global
-  - Conclusions & actions prioritaires
+- **§2. Modèle Hydraulique** : tableau récap 6 composants, matériaux, pressions
+- **§2b. Données Pompe** : tableau récap 10 lignes, alerte NPSH
+- **§3. Résultats Transitoires** : Pmin/Pmax/Vol.Gaz
+- **§4. Interprétation & Recommandations**
 
 ---
 
-## ⚙️ 5. Spécifications fonctionnelles détaillées
+## 📅 5. Phasage
 
-### 5.1 `PumpCurveCalculator`
-
-**Méthodes** :
-```python
-class PumpCurveCalculator:
-    def __init__(self, curve_data: list[tuple[float, float, float, float]],
-                 npsh_required_m: float):
-        # curve_data : [(Q_m3h, H_m, eta_pct, P_kW), ...]
-        ...
-
-    def find_operating_point(self, hmt_target_m: float, q_target_m3h: float) -> dict:
-        """Interpolation linéaire de la courbe pour trouver (Q, H) au point voulu."""
-        ...
-
-    def compute_npsh_available(self, p_atm_m: float, p_vapor_m: float,
-                                h_static_m: float, losses_m: float) -> float:
-        """NPSHd = (Patm - Pvapeur) / (ρg) + ΔH_static - pertes"""
-        ...
-
-    def compute_power(self, q_m3h: float, h_m: float, eta_pct: float) -> float:
-        """P_kW = ρ * g * Q * H / (1000 * η)"""
-        ...
-
-    def get_curve_data_for_display(self) -> dict:
-        """Renvoie les arrays pour matplotlib (Q_array, H_array, eta_array, P_array)."""
-        ...
-```
-
-**Validations** :
-- Au moins 3 points dans la courbe
-- Q ≥ 0, H ≥ 0, 0 ≤ η ≤ 100, P ≥ 0
-- Avertissement si la courbe n'est pas monotone décroissante
-
-### 5.2 `AirValveSizing`
-
-**Méthodes** :
-```python
-class AirValveSizing:
-    def __init__(self, profile: list[tuple[float, float, float]],
-                 pipe_dn_mm: int):
-        # profile : [(PK_m, Z_m, slope_pct), ...]
-        ...
-
-    def find_critical_points(self) -> list[dict]:
-        """Détecte les points hauts (maxima locaux Z) et points bas (minima).
-        Retourne : [{pk, z, type: 'high'|'low'|'end'}, ...]"""
-        ...
-
-    def recommend_valves(self) -> list[dict]:
-        """Pour chaque point critique, recommande type + DN.
-        Règles :
-          - Point haut : ventouse combinée grande orifice, DN ≥ DN/8
-          - Point bas  : pas de ventouse (sauf vanne de vidange)
-          - Extrémités : ventouse anti-vide simple, DN ≥ DN/12
-          - Long tronçon horizontal (> 500m sans singularité) : ventouse intermédiaire
-        """
-        ...
-
-    def get_profile_for_display(self) -> dict:
-        """Renvoie arrays pour matplotlib + marqueurs ventouses."""
-        ...
-```
-
-### 5.3 `SystemDiagnostics`
-
-**Méthodes** :
-```python
-class SystemDiagnostics:
-    def __init__(self, pump, air_valves, hpt_result, station_result, config):
-        ...
-
-    def run_all_checks(self) -> list[dict]:
-        """Exécute toutes les vérifications croisées et retourne un rapport.
-        Format : [{check, status, value, message}, ...]
-        Status ∈ {'OK', 'WARN', 'FAIL', 'NA'}
-        """
-        checks = [
-            self.check_pump_matches_flow(),
-            self.check_npsh_margin(),
-            self.check_pump_power_vs_electrical(),
-            self.check_valves_at_high_points(),
-            self.check_hpt_volume_under_threshold(),
-            self.check_pressure_envelopes(),
-        ]
-        return checks
-
-    def check_npsh_margin(self) -> dict:
-        """Marge ≥ +1 m → OK ; 0 à 1 m → WARN ; < 0 → FAIL"""
-        ...
-
-    def check_valves_at_high_points(self) -> dict:
-        """Toutes les points hauts doivent être couverts → sinon WARN"""
-        ...
-```
+| Phase | Livrables | Statut |
+|---|---|---|
+| **P1 — Parser classeur HAMMER** | WorkbookManager + 6 feuilles + .hpi v3.0 + Rapport Word | ✅ Terminé |
+| **P2 — Module Pompe** | PumpReportParser + UI courbe H(Q) + graphique + 58 tests | ✅ Terminé |
+| **P3 — Module Ventouses** | AirValveSizing + profil en long + UI + tests | 📋 À démarrer |
+| **P4 — Module Système** | SystemDiagnostics + Rapport Word complet | 📋 |
+| **P5 — Documentation** | README, CHANGELOG, guide utilisateur v3.0 | 📋 |
 
 ---
 
-## 🔄 6. Migration `.hpi` v2.x → v3.0
+## 🧪 6. Stratégie de tests
 
-### 6.1 Règle de lecture
-```python
-def _load_project_v2_or_v3(self, filepath: str):
-    payload = json.load(open(filepath))
-    version = payload.get("version", "1.0")
+### 6.1 Tests unitaires (58 tests ✅)
+- 19 tests `_parse_number()` : natif, None/NaN, nbsp, virgule FR, négatifs
+- 4 tests `_find_col_in_df()` : match exact, partiel, casse
+- 17 tests intégration workbook : chargement, validation, résumé
+- 3 tests erreurs : extension invalide, fichier absent, feuille manquante
+- 4 tests rétrocompatibilité : CSV HPT + station lisibles
+- 12 tests `PumpReportParser` : RTF réel, strip RTF, courbe points, interpolation, résumé
 
-    if version.startswith("1.") or version.startswith("2."):
-        # Migration transparente : ajout des sections vides
-        payload.setdefault("pump", None)
-        payload.setdefault("air_valves", None)
-        payload.setdefault("system_diagnostics", None)
-        payload["version"] = "3.0"   # Promotion à la lecture
-        self._migrated_from = version
-
-    # Suite : chargement normal
-    ...
-```
-
-### 6.2 Règle d'écriture
-- Toujours écrire `version: "3.0"` pour les nouveaux projets
-- Conserver l'avertissement à l'utilisateur si le projet a été migré depuis v2.x :
-  > *"Ce projet a été créé avec la v2.x. Certaines sections (Pompe, Ventouses) sont vides et n'ont pas encore été remplies."*
-
-### 6.3 Format legacy `.hpi` v2.x
-- Rester lisible par v2.x ? → **NON** (cohérence interne)
-- Documenter la non-réversibilité dans le rapport d'export et la doc
-
----
-
-## 🧪 7. Stratégie de tests
-
-### 7.1 Tests unitaires (couverture > 85%)
-- `PumpCurveCalculator` : interpolation, NPSH, puissance (10+ cas)
+### 6.2 Tests Phase 3 (prévu)
 - `AirValveSizing` : détection points critiques, dimensionnement (8+ cas)
 - `SystemDiagnostics` : chaque check avec cas OK / WARN / FAIL / NA
 - Migration v2.x → v3.0 : lecture de 3 fichiers de test legacy
 
-### 7.2 Tests d'intégration
-- Création projet v3 → ajout pompe → ajout ventouses → sauvegarde → rechargement
-- Vérification que la régénération du graphique fonctionne avec sections vides
-- Export Word v3 : présence des nouvelles sections
-
-### 7.3 Tests visuels (manuels)
-- Maquettes des onglets 2 & 4 validées par 2 ingénieurs hydrauliques
-- Vérification de la lisibilité des couleurs KPI (vert/orange/rouge)
-- Impression PDF de la note technique complète (15-20 pages)
-
-### 7.4 Tests de régression
-- Tous les tests v2.x doivent toujours passer
-- Projets `.hpi` de test (3 fichiers legacy) se chargent sans erreur
+### 6.3 Tests visuels (manuels)
+- Courbe H(Q) interpolée lisible et correcte
+- Point nominal bien positionné sur la courbe
+- Adaptation thème clair/sombre vérifiée
 
 ---
 
-## 📅 8. Phasage proposé
+## ⚠️ 7. Risques & questions ouvertes
 
-| Phase | Livrables | Durée estimée | Statut |
-|---|---|---|---|
-| **P1 — Spec & maquettes** | Ce document + wireframes Figma/PNG | 2 semaines | ✅ Fait |
-| **P2 — Module Pompe** | `PumpCurveCalculator` + Onglet 2 + tests unitaires | 3 semaines | 🔲 À démarrer |
-| **P3 — Module Ventouses** | `AirValveSizing` + Onglet 4 + tests | 2 semaines | 🔲 |
-| **P4 — Module Système** | `SystemDiagnostics` + Onglet 5 (Rapport) + intégration Word | 3 semaines | 🔲 |
-| **P5 — Migration & UI** | Migration v2.x, sidebar ACTIF, polish | 2 semaines | 🔲 |
-| **P6 — Tests & QA** | Tests intégration + visuels + régression | 2 semaines | 🔲 |
-| **P7 — Documentation** | README, CHANGELOG, guide utilisateur v3.0 | 1 semaine | 🔲 |
-| **P8 — Release** | Tag v3.0.0, distribution, communication | 1 semaine | 🔲 |
-| **TOTAL** | | **~16 semaines** (4 mois) | |
-
----
-
-## ⚠️ 9. Risques & questions ouvertes
-
-### 9.1 Risques techniques
+### 7.1 Risques techniques
 | Risque | Probabilité | Impact | Mitigation |
 |---|---|---|---|
-| Volume excessif du `.hpi` avec courbes de pompe longues | Faible | Moyen | Compression gzip optionnelle à l'écriture |
-| Calcul NPSH avec données incomplètes | Moyen | Élevé | Valeurs par défaut documentées + bandeau d'avertissement |
-| Incohérence entre `pump` et `hpt` (deux analyses du même débit) | Moyen | Élevé | `SystemDiagnostics.check_pump_matches_flow()` |
-| Performance UI avec 100+ points de profil en long | Faible | Faible | Sous-échantillonnage pour affichage, données brutes conservées |
-| Régression visuelle v2.x après refactor layout | Moyen | Moyen | Tests visuels comparatifs + beta-testeurs |
+| Interpolation polynomiale instable avec 2 points | Faible | Moyen | Degré limité à min(nb-1, 3) |
+| Format RTF variable entre versions HAMMER | Moyen | Moyen | `_strip_rtf()` robuste + tests avec fichier réel |
+| Performance UI avec >50 points de courbe | Faible | Faible | Tri automatique par Q croissant |
 
-### 9.2 Questions ouvertes (à arbitrer avant P2)
-
-1. **Formats de fichiers pompe acceptés** : en plus de CSV, faut-il supporter Excel (.xlsx) ?  
-   *Recommandation : OUI, par cohérence avec les autres onglets.*
-
-2. **Pompe à vitesse variable** : faut-il une courbe `H(Q, N)` ou juste la courbe à N constant ?  
-   *Recommandation : N constant en v3.0, vitesse variable en v3.1.*
-
-3. **Calcul de pertes de charge réseau** : faut-il les demander ou les extraire de HAMMER ?  
-   *Recommandation : les deux — saisie manuelle OU extraction depuis fichier HPT (colonne "Headloss").*
-
-4. **Ventouses sur les sections en charge vs en refoulement** : différenciation ?  
-   *Recommandation : NON en v3.0 — juste le type et DN, pas le côté de la conduite.*
-
-5. **Multilangue** : faut-il préparer l'i18n (FR/EN) dès la v3.0 ?  
-   *Recommandation : NON — garder le français comme v2.x, i18n en v4.0.*
-
-6. **Base de données de ventouses pré-dimensionnées** : inclure quelques modèles courants (GA, ARI, Venting et al.) ?  
-   *Recommandation : NON en v3.0 (scope creep). Documentation des règles métier en v3.1.*
+### 7.2 Questions ouvertes (pour Phase 3)
+1. **Interpolation avancée** : spline cubique pour courbes à >4 points ?
+2. **Auto-parser points courbe** : extraction automatique depuis le RTF (Shutoff/Design/Max Op)
+3. **Ventouses sur sections en charge vs refoulement** : différenciation ?
+4. **Multilangue** : i18n FR/EN dès v3.0 ? → Recommandation : NON
 
 ---
 
-## 📊 10. Métriques de succès
+## 📊 8. Métriques de succès
 
-| Métrique | Cible |
-|---|---|
-| Couverture de tests unitaires | > 85% |
-| Bugs de régression détectés en P6 | < 5 |
-| Temps de chargement d'un `.hpi` v3.0 (5 MB) | < 1 s |
-| Temps d'export Word complet (15 pages) | < 5 s |
-| Satisfaction beta-testeurs (échelle 1-5) | ≥ 4.2 |
-| Adoption (téléchargements v3.0 / v2.x à 3 mois) | ≥ 60% |
+| Métrique | Cible | Actuel |
+|---|---|---|
+| Couverture de tests unitaires | > 85% | 58 tests ✅ |
+| Bugs de régression | < 5 | 0 ✅ |
+| Temps de chargement `.hpi` v3.0 (< 5 MB) | < 1 s | ✅ |
+| Temps d'export Word complet (< 15 pages) | < 5 s | ✅ |
 
 ---
 
-## 📎 11. Annexes
+## 📎 9. Annexes
 
-### A. Arborescence cible (post v3.0)
+### A. Arborescence actuelle
 ```
 HammerPy Insight/
-├── main.py                          # ~3500 lignes (avec v3)
-├── requirements.txt                 # inchangé
-├── README.md                        # maj v3.0
-├── ROADMAP.md                       # ce document
-├── CHANGELOG.md                     # NOUVEAU (historique versions)
-├── test_units.py                    # tests v2 (conservé)
-├── test_v3_pump.py                  # NOUVEAU
-├── test_v3_valves.py                # NOUVEAU
-├── test_v3_integration.py           # NOUVEAU
-├── test_legacy_migration.py         # NOUVEAU
-├── data/                            # NOUVEAU (optionnel)
-│   ├── sample_pump_curve.csv
-│   ├── sample_profile.csv
-│   └── legacy_v2_project.hpi        # pour test migration
-└── docs/                            # NOUVEAU
-    ├── user_guide_v3.md
-    ├── technical_spec_v3.md
-    └── wireframes/
-        ├── tab2_pump.png
-        └── tab4_valves.png
+├── main.py                          # ~3600 lignes (Phase 1 + 2)
+├── hammerpy_icon.ico                # Icône multi-tailles (370 Ko)
+├── test_workbook_parser.py          # 58 tests unitaires
+├── requirements.txt                 # Dépendances
+├── README.md                        # Documentation v3.0 Phase 2
+├── ROADMAP.md                       # Ce document
+├── Flex Tables.xlsx                 # Classeur HAMMER exemple (exclu du dépôt)
+├── station_steady_state_test.csv    # CSV test station
+├── hpt_transient_test.csv           # CSV test HPT
+└── .gitignore                       # Exclut données perso + Flex Tables
 ```
 
-### B. Nouvelles dépendances (toutes optionnelles)
-- **Aucune dépendance externe obligatoire** pour la v3.0 core
-- `scipy` (interpolation cubique optionnelle) — *à confirmer en P2*
-- `reportlab` (déjà présent) — pour la mise en page avancée du profil en long
+### B. Dépendances
+- **Aucune dépendance externe obligatoire** ajoutée en Phase 2
+- `numpy` : utilisé pour l'interpolation polyfit (déjà présent via matplotlib)
 
 ### C. Glossaire
 - **HPT** : Hydropneumatic Tank (réservoir anti-bélier)
@@ -570,9 +373,10 @@ HammerPy Insight/
 - **PN** : Pression Nominale (classe de conduite)
 - **DN** : Diamètre Nominal (conduite ou appareil)
 - **η** : Rendement (de la pompe)
-- **V1, V2, V3** : repères de ventouses dans les plans
+- **RTF** : Rich Text Format (format du rapport pompe HAMMER)
 
 ---
 
-*Document rédigé le 4 juin 2026 — HammerPy Insight v2.1 → v3.0 — Roadmap*
-*Prochaine revue : fin de phase P2 (module Pompe)*
+*Document rédigé le 4 juin 2026 — HammerPy Insight v3.0 Phase 2 — Roadmap*
+*Phase 2 terminée le 5 juin 2026 — Parser rapport pompe + UI courbe H(Q)*
+*Prochaine revue : démarrage Phase 3 (module Ventouses)*

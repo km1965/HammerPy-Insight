@@ -11,7 +11,8 @@ Permettre aux ingénieurs hydrauliques de :
 2. Configurer les paramètres réglementaires de l'étude (Classe PN, pression min de sécurité)
 3. Visualiser interactivement les courbes enveloppes de pressions et volumes de gaz
 4. Consulter le **résumé du modèle hydraulique** (6 feuilles : Pipes, Nœuds, Pompes, Réservoirs, HPT, Ventouses)
-5. Générer en un clic une **note technique structurée au format Word (.docx)** prête à intégrer au dossier d'étude
+5. **Analyser la courbe H(Q) d'une pompe** à partir du rapport détaillé HAMMER (RTF/TXT)
+6. Générer en un clic une **note technique structurée au format Word (.docx)** prête à intégrer au dossier d'étude
 
 ---
 
@@ -31,8 +32,9 @@ Permettre aux ingénieurs hydrauliques de :
   - Configuration (PN, pression min admissible, unités, seuil HPT)
   - Données station + données HPT **embarquées**
   - **6 feuilles du classeur HAMMER** (Pipes, Nœuds, Réservoirs, Pompes, HPT, Ventouses) en `orient='records'` optimisé
+  - **Données pompe** : rapport détaillé parsé + points de courbe H(Q) saisis
   - Texte complet de la prévisualisation du rapport
-  - Le graphique Matplotlib est **automatiquement régénéré** à l'ouverture
+  - Les graphiques Matplotlib sont **automatiquement régénérés** à l'ouverture
 - **Rétrocompatibilité** : les `.hpi` v2.x restent lisibles par v3.0
 - **Détection des modifications** : indicateur visuel orange dès qu'un changement est effectué
 - **Protection contre la perte de données** : confirmation avant d'écraser un projet modifié (Ouverture / Quitter)
@@ -55,13 +57,19 @@ Permettre aux ingénieurs hydrauliques de :
 ### Onglet 2 — Analyse Transitoire
 - Importation du fichier d'enveloppe HPT Bentley HAMMER
 - **Indicateurs KPI colorés** (Pression Min, Pression Max, Volume Gaz)
-- **Nouveau : Section « Modèle HAMMER »** :
+- **Section « Modèle HAMMER »** :
   - Bouton **Charger classeur HAMMER** (.xlsx/.xls) — lit le fichier Flex Tables complet
   - **6 compteurs** de feuilles : Pipes, Nœuds, Pompes, Réservoirs, HPT, Ventouses
   - **4 mini-stats** : P max, P min, Q max pompe, Matériaux détectés
   - Bouton **Réinitialiser** pour vider le classeur chargé
   - Validation stricte : refuse si Pipes, Nœuds ou Pompes manquants
-- **Graphique double-subplot interactif Matplotlib** :
+- **Section « Courbe H(Q) Pompe »** :
+  - Bouton **Charger rapport pompe** (.rtf / .txt) — extrait les données pompe (ID, label, débit nominal, HMT, NPSH dispo.)
+  - **5 KPI** : Label, Q nominal, HMT pompe, NPSH disponible, Nombre de points courbe
+  - **Saisie manuelle des points de courbe** : champs Q (L/s) + H (m) + boutons Ajouter / Effacer
+  - **Graphique Matplotlib H(Q)** : courbe interpolée (polyfit numpy), points saisis (pastilles orange), point nominal (losange rouge)
+  - Adaptation automatique au thème clair/sombre
+- **Graphique HPT double-subplot interactif** :
   - Courbes Pression Min/Max le long de la conduite
   - **Seuils critiques tracés dynamiquement** (ligne PN, ligne P min sécurité)
   - **Zones de dépassement surlignées** automatiquement
@@ -72,15 +80,19 @@ Permettre aux ingénieurs hydrauliques de :
 ### Onglet 3 — Rapport Technique
 - **Prévisualisation éditable** de la note complète
 - Diagnostic de sécurité automatique (surpression, dépression, volume HPT)
-- **Nouvelle section « Modèle Hydraulique »** dans le rapport Word :
+- **Section « Modèle Hydraulique »** dans le rapport Word :
   - Tableau récapitulatif (6 composants du réseau)
   - Matériaux et diamètres des conduites
   - Pressions transitoires du modèle avec alertes conformité
+- **Section « Données Pompe »** dans le rapport Word :
+  - Tableau récapitulatif pompe (ID, label, débit, HMT, NPSH dispo., downstream pipe)
+  - Alerte NPSH si dispo. < requis
 - **Export .txt** (note brute)
 - **Export Word (.docx)** professionnel structuré :
   - En-tête centré
   - Tableau de métadonnées du projet
-  - Section Modèle Hydraulique (nouveau)
+  - Section Modèle Hydraulique
+  - Section Données Pompe
   - Tableau de résultats avec codes couleurs vert/rouge (OK / Dépassement)
   - Interprétation et recommandations par section (Surpression, Dépression, Volume HPT)
   - **Graphique Matplotlib intégré automatiquement** dans le document
@@ -108,6 +120,18 @@ Permettre aux ingénieurs hydrauliques de :
 | **HPT** | Réservoirs anti-bélier (volumes, pressions gaz) | ⬜ Optionnel |
 | **Air valves** | Ventouses : type, diamètres orifices, volumes air | ⬜ Optionnel |
 
+### Rapport Pompe Détaillé (import pour courbe H(Q))
+
+| Format | Contenu |
+|--------|---------|
+| `.rtf` | Rapport HAMMER « Pump Detailed Report » — extraction de 13 champs (ID, label, débit, HMT, NPSH, etc.) |
+| `.txt` | Format texte brut du même rapport |
+
+**Champs extraits du rapport pompe :**
+- `pump_id`, `label`, `downstream_pipe`, `speed_factor`, `status_initial`
+- `flow_lps`, `pump_head_m`, `pressure_suction_bar`, `pressure_discharge_bar`
+- `npsh_available_m`, `npsh_required_m`, `controlled`, `hydraulic_grade_*`
+
 **Colonnes HAMMER reconnues automatiquement** (anglais et français) :
 - `Pressure (Minimum)` / `Pression Min` / `P Min`
 - `Pressure (Maximum)` / `Pression Max` / `P Max`
@@ -133,7 +157,7 @@ pip install -r requirements.txt
 ```
 
 **Dépendances principales :**
-`customtkinter` · `pandas` · `openpyxl` · `matplotlib` · `python-docx` · `pillow`
+`customtkinter` · `pandas` · `openpyxl` · `matplotlib` · `numpy` · `python-docx` · `pillow`
 
 ---
 
@@ -149,14 +173,14 @@ python main.py
 
 | Fichier | Description |
 |---------|-------------|
-| `main.py` | Script principal — application complète |
+| `main.py` | Script principal — application complète (~3600 lignes) |
 | `hammerpy_icon.ico` | Icône de l'application (éclair HammerPy, 6 tailles) |
 | `Flex Tables.xlsx` | Classeur HAMMER d'exemple (6 feuilles) |
 | `station_steady_state_test.csv` | Débit nominal et HMT d'une station AEP fictive |
 | `hpt_transient_test.csv` | Enveloppes de pression et volume de gaz |
-| `test_workbook_parser.py` | Tests unitaires (48 tests) |
+| `test_workbook_parser.py` | Tests unitaires (58 tests) |
 | `requirements.txt` | Dépendances Python |
-| `ROADMAP.md` | Feuille de route v3.0 (Pompes & Ventouses) |
+| `ROADMAP.md` | Feuille de route v3.0 |
 
 ---
 
@@ -173,6 +197,13 @@ main.py
 │   ├── get_summary()              # Résumé : counts, Pmax/Pmin, matériaux, diamètres
 │   └── get_sheet()                # Accès à une feuille par nom canonique
 │
+├── PumpReportParser               # Extraction données pompe depuis rapport RTF/TXT
+│   ├── load()                     # Lecture fichier, extraction texte RTF
+│   ├── _strip_rtf()               # Suppression balises RTF, images, fonttbl
+│   ├── _parse_report()            # Deux phases : ID/Label (General) + données opérées
+│   ├── add_curve_point()          # Ajout point Q/H avec tri automatique
+│   └── get_summary()              # Résumé pompe (label, Q, H, NPSH, nb points)
+│
 ├── HammerDataParser               # Logique de parsing (CSV/Excel, robuste et flexible)
 │   ├── _load_file()               # Chargement universel avec gestion encodages
 │   ├── _find_col()                # Recherche flexible de colonnes par mots-clés
@@ -180,25 +211,30 @@ main.py
 │   └── parse_hpt_file()           # Transitoire (Pmin, Pmax, Vol.Gaz)
 │
 ├── WordReportGenerator            # Génération du rapport Word (.docx)
-│   └── generate()                 # Rapport complet avec section Modèle Hydraulique
+│   └── generate()                 # Rapport complet avec sections Modèle + Pompe
 │
 └── HammerPyApp (ctk.CTk)          # Interface graphique principale
     ├── _create_top_bar()          # Barre de menu Ouvrir/Enregistrer/Enregistrer sous/Quitter
     ├── _create_sidebar()          # Configuration PN, thème, aide
     ├── Onglet 1                   # Régime permanent
-    ├── Onglet 2                   # Analyse transitoire + Matplotlib + Modèle HAMMER
+    ├── Onglet 2                   # Analyse transitoire + Matplotlib + Modèle HAMMER + Courbe H(Q)
     │   ├── _import_workbook()     # Chargement classeur Flex Tables
     │   ├── _reset_workbook()      # Réinitialisation du classeur
-    │   └── _update_chart()        # Tracé dynamique avec seuils configurables
+    │   ├── _import_pump_report()  # Chargement rapport pompe RTF/TXT
+    │   ├── _reset_pump_report()   # Réinitialisation rapport pompe
+    │   ├── _on_add_pump_point()   # Ajout point courbe Q/H
+    │   ├── _on_clear_pump_points()# Effacement points courbe
+    │   ├── _update_pump_curve_chart() # Tracé courbe H(Q) interpolée
+    │   └── _update_chart()        # Tracé dynamique HPT avec seuils configurables
     ├── Onglet 3                   # Rapport et exports
     ├── Gestion de projet          # Sauvegarde/chargement .hpi v3.0 (JSON)
     │   ├── _open_project()
     │   ├── _save_project_as()
     │   ├── _save_project_quick()
-    │   ├── _load_project()        # Restauration complète + régénération graphique
+    │   ├── _load_project()        # Restauration complète + régénération graphiques
     │   └── _quit_app()            # Confirmation si modifications non sauvegardées
     ├── _export_txt()              # Export note brute
-    └── _export_word()             # Export Word professionnel avec section Modèle
+    └── _export_word()             # Export Word professionnel avec sections Modèle + Pompe
 ```
 
 ---
@@ -209,7 +245,7 @@ main.py
 # Lancer tous les tests
 python -m pytest test_workbook_parser.py -v
 
-# Résultat attendu : 48 passed
+# Résultat attendu : 58 passed
 ```
 
 **Couverture des tests :**
@@ -218,7 +254,8 @@ python -m pytest test_workbook_parser.py -v
 - 17 tests intégration workbook : chargement, validation, résumé
 - 3 tests erreurs : extension invalide, fichier absent, feuille manquante
 - 4 tests rétrocompatibilité : CSV HPT + station lisibles
+- 12 tests `PumpReportParser` : chargement RTF réel, strip RTF, courbe points, interpolation, résumé
 
 ---
 
-*Document mis à jour automatiquement — HammerPy Insight v3.0 — Juin 2026*
+*Document mis à jour automatiquement — HammerPy Insight v3.0 Phase 2 — Juin 2026*
