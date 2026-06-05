@@ -317,14 +317,14 @@ class TestPumpReportParser:
         assert not ok
 
     def test_strip_rtf_basic(self):
-        from main import _strip_rtf
+        from pump_parser import _strip_rtf
         rtf = r"{\rtf1 Some text \b bold \b0 normal}"
         text = _strip_rtf(rtf)
         assert "Some text" in text
         assert "normal" in text
 
     def test_strip_rtf_images(self):
-        from main import _strip_rtf
+        from pump_parser import _strip_rtf
         rtf = r"Before \pict\picw100\pich100 data After"
         text = _strip_rtf(rtf)
         assert "Before" in text
