@@ -83,6 +83,8 @@ class HammerDataParser:
         """
         Parse le fichier de régime permanent de la station hydraulique.
         Cherche les colonnes de Débit (Q) et de HMT dans le fichier.
+        Pour les fichiers Excel multi-feuilles, explore toutes les feuilles
+        pour trouver les colonnes pertinentes (priorité à la feuille 'Pompes').
 
         Args:
             filepath: chemin du fichier CSV/Excel.
@@ -106,20 +108,68 @@ class HammerDataParser:
         }
 
         try:
-            df = self._load_file(filepath)
-            df.columns = [str(c).strip() for c in df.columns]
+            ext = os.path.splitext(filepath)[1].lower()
+
+            if ext in ('.xlsx', '.xls'):
+                xl = pd.ExcelFile(filepath)
+                sheet_names = xl.sheet_names
+
+                # Priorité : feuille contenant 'pompes' ou 'pump'
+                preferred = None
+                for s in sheet_names:
+                    if any(kw in s.lower() for kw in ('pompes', 'pump')):
+                        preferred = s
+                        break
+
+                # Ordre de lecture : feuille préférée en premier, puis les autres
+                ordered = []
+                if preferred:
+                    ordered.append(preferred)
+                ordered.extend(s for s in sheet_names if s != preferred)
+
+                df = None
+                for s in ordered:
+                    tmp = pd.read_excel(filepath, sheet_name=s)
+                    tmp.columns = [str(c).strip() for c in tmp.columns]
+                    q_col = self._find_col(tmp.columns,
+                        ['debit', 'flow', 'flow_rate', 'q (m3', 'm3/h', 'discharge',
+                         'q (l/s', 'l/s', 'lps', 'q (l·s'])
+                    hmt_col = self._find_col(tmp.columns,
+                        ['hmt', 'head', 'pump head', 'mce', 'hauteur', 'total_head', 'tdh'])
+                    if q_col or hmt_col:
+                        df = tmp
+                        break
+
+                if df is None:
+                    # Aucune feuille trouvée avec Q/HMT, lire la première feuille
+                    df = pd.read_excel(filepath)
+                    df.columns = [str(c).strip() for c in df.columns]
+            else:
+                df = self._load_file(filepath)
+                df.columns = [str(c).strip() for c in df.columns]
+
             result["columns"] = list(df.columns)
             result["n_rows"] = len(df)
 
             q_col   = self._find_col(df.columns,
                 ['debit', 'flow', 'flow_rate', 'q (m3', 'm3/h', 'discharge',
                  'q (l/s', 'l/s', 'lps', 'q (l·s'])
-            hmt_col = self._find_col(df.columns, ['hmt', 'head', 'mce', 'hauteur', 'total_head', 'tdh'])
+            hmt_col = self._find_col(df.columns,
+                ['hmt', 'head', 'pump head', 'mce', 'hauteur', 'total_head', 'tdh'])
 
             flow_rate = float(df.iloc[0][q_col])   if q_col   else None
             hmt       = float(df.iloc[0][hmt_col]) if hmt_col else None
 
-            if flow_rate is not None and source_unit == "L/s":
+            # Auto-détection de l'unité source à partir du nom de colonne
+            detected_unit = source_unit
+            if detected_unit is None and q_col is not None:
+                col_lower = q_col.lower()
+                if 'l/s' in col_lower or 'lps' in col_lower or 'l·s' in col_lower:
+                    detected_unit = "L/s"
+                else:
+                    detected_unit = "m³/h"
+
+            if flow_rate is not None and detected_unit == "L/s":
                 flow_rate = flow_rate * 3.6
 
             self.steady_state_data = df
@@ -127,7 +177,7 @@ class HammerDataParser:
                 "success": True,
                 "flow_rate_m3h": round(flow_rate, 2) if flow_rate is not None else None,
                 "hmt_m":         round(hmt, 2)        if hmt       is not None else None,
-                "source_unit_detected": source_unit or "m³/h",
+                "source_unit_detected": detected_unit or "m³/h",
                 "message": (
                     f"Chargement réussi : {len(df)} lignes, {len(df.columns)} colonnes.\n"
                     f"Colonnes trouvées : {', '.join(df.columns)}"
