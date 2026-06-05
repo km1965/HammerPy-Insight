@@ -524,7 +524,7 @@ class WordReportGenerator:
                     for j, h in enumerate(hdrs):
                         run = tbl.rows[0].cells[j].paragraphs[0].add_run(h)
                         run.bold = True
-                        run.font.color.rgb = self._rgb("#2d6a4f")
+                        run.font.color.rgb = self._rgb((0x2d, 0x6a, 0x4f))
 
                     for i, v in enumerate(vents):
                         tbl.rows[i + 1].cells[0].paragraphs[0].add_run(
@@ -550,7 +550,7 @@ class WordReportGenerator:
                     for j, h in enumerate(hdrs):
                         run = tbl.rows[0].cells[j].paragraphs[0].add_run(h)
                         run.bold = True
-                        run.font.color.rgb = self._rgb("#ef476f")
+                        run.font.color.rgb = self._rgb((0xef, 0x47, 0x6f))
 
                     for i, d in enumerate(drains):
                         tbl.rows[i + 1].cells[0].paragraphs[0].add_run(
