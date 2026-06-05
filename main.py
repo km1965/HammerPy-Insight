@@ -616,6 +616,404 @@ def _find_col_in_df(df: pd.DataFrame, keywords: list[str]) -> str | None:
 
 
 # =====================================================================
+# 1b. PARSER RAPPORT POMPE (RTF / TXT)
+# =====================================================================
+
+import re as _re
+
+# Mots-clés RTF à ignorer lors de l'extraction du texte brut
+_RTF_STRIP_RE = _re.compile(
+    r'\\[a-zA-Z]+\d*\s?'
+    r'|\\\{|\\\}'
+    r'|\\pict[^}]*(?:\}|$)'
+    r'|\{\\\*\\[^{}]+\}'
+)
+
+
+def _strip_rtf(rtf_text: str) -> str:
+    """
+    Extrait le texte lisible d'un fichier RTF brute.
+    Approche : supprimer les groupes connus (fonttbl, pict, styles),
+    puis extraire le texte restant.
+    """
+    text = rtf_text
+
+    # 1. Supprimer le bloc fonttbl (contient toutes les définitions de polices)
+    idx = text.find('{\\fonttbl')
+    if idx >= 0:
+        depth = 0
+        for i in range(idx, len(text)):
+            if text[i] == '{':
+                depth += 1
+            elif text[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    text = text[:idx] + text[i+1:]
+                    break
+
+    # 2. Supprimer les groupes {\*\...} (groupes de styles internes, info, etc.)
+    #    On les détecte par {\* au début et on supprime jusqu'à l'accolade fermante
+    while '{\\*' in text:
+        start = text.find('{\\*')
+        # Trouver l'accolade fermante correspondante
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == '{':
+                depth += 1
+            elif text[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    text = text[:start] + text[i+1:]
+                    break
+
+    # 3. Supprimer les groupes {\pict...} (images embarquées)
+    while '{\\pict' in text:
+        start = text.find('{\\pict')
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == '{':
+                depth += 1
+            elif text[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    text = text[:start] + text[i+1:]
+                    break
+
+    # 4. Supprimer les groupes {\background...} (contient des images)
+    while '{\\background' in text:
+        start = text.find('{\\background')
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == '{':
+                depth += 1
+            elif text[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    text = text[:start] + text[i+1:]
+                    break
+
+    # 5. Supprimer les contrôle mots RTF
+    text = _re.sub(r'\\[a-zA-Z]+\d*\s?', ' ', text)
+
+    # 6. Nettoyer les accolades restantes et le texte
+    text = text.replace('{', '').replace('}', '')
+    text = _re.sub(r'[ \t]+', ' ', text)
+    text = _re.sub(r' \n', '\n', text)
+    text = _re.sub(r'\n\s*\n', '\n', text)
+    return text.strip()
+
+
+class PumpReportParser:
+    """
+    Parse un rapport détaillé pompe Bentley HAMMER exporté en RTF (.rtf) ou TXT (.txt).
+    Extrait les données d'identification, le point de fonctionnement actuel,
+    et les grandeurs NPSH associées.
+
+    Sortie typique :
+    {
+      "success": True,
+      "pump_id": "131",
+      "label": "PMP-2",
+      "downstream_pipe": "P-4",
+      "flow_lps": 100.0,       # débit en L/s (stockage interne)
+      "pump_head_m": 110.80,
+      "pressure_suction_bar": 0.54,
+      "pressure_discharge_bar": 11.38,
+      "npsh_required_m": None,  # (N/A) dans le rapport
+      "npsh_available_m": 15.35,
+      "speed_factor": 1.0,
+      "status_initial": "On",
+      "controlled": False,
+      "hydraulic_grade_suction_m": 114.19,
+      "hydraulic_grade_discharge_m": 224.99,
+      "curve_points": [],       # Pour v3.x : points H(Q) saisis manuellement
+    }
+    """
+
+    # Paires label→clé canoniques pour l'extraction
+    _KEY_MAP = {
+        "id":                  "pump_id",
+        "label":               "label",
+        "downstream pipe":     "downstream_pipe",
+        "flow (total)":        "flow_lps",
+        "flow (absolute)":     "_flow_abs_lps",
+        "pump head":           "pump_head_m",
+        "pressure (suction)":  "pressure_suction_bar",
+        "pressure (discharge)": "pressure_discharge_bar",
+        "npsh (required)":     "npsh_required_m",
+        "npsh (available)":    "npsh_available_m",
+        "relative speed factor (calculated)": "speed_factor",
+        "relative speed factor (initial)":    "speed_factor",
+        "status (initial)":    "status_initial",
+        "status (calculated)": "_status_calc",
+        "controlled?":         "controlled",
+        "hydraulic grade (suction)":  "hydraulic_grade_suction_m",
+        "hydraulic grade (discharge)": "hydraulic_grade_discharge_m",
+    }
+
+    _UNITS = {
+        "flow_lps":    "L/s",
+        "pump_head_m": "m",
+        "pressure_suction_bar":   "bar",
+        "pressure_discharge_bar": "bar",
+        "npsh_required_m":  "m",
+        "npsh_available_m": "m",
+        "hydraulic_grade_suction_m":  "m",
+        "hydraulic_grade_discharge_m": "m",
+    }
+
+    def __init__(self):
+        self.filepath: str = ""
+        self.raw_text: str = ""
+        self.parsed: dict = {}
+        self.errors: list[str] = []
+        self.curve_points: list[dict] = []  # [{flow_lps: float, head_m: float}, ...]
+
+    def load(self, filepath: str) -> bool:
+        """
+        Charge et parse un fichier rapport pompe (.rtf ou .txt).
+        Retourne True si les données essentielles ont été extraites.
+        """
+        self.filepath = filepath
+        self.raw_text = ""
+        self.parsed = {}
+        self.errors = []
+
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext not in ('.rtf', '.txt'):
+            self.errors.append(f"Extension '{ext}' non supportée. Utilisez .rtf ou .txt")
+            return False
+
+        try:
+            encodings = ['utf-8', 'ansi', 'latin-1', 'cp1252']
+            for enc in encodings:
+                try:
+                    with open(filepath, 'r', encoding=enc) as f:
+                        self.raw_text = f.read()
+                    break
+                except (UnicodeDecodeError, LookupError):
+                    continue
+            else:
+                self.errors.append("Impossible de lire le fichier (encodage non reconnu)")
+                return False
+        except Exception as exc:
+            self.errors.append(f"Erreur de lecture : {exc}")
+            return False
+
+        # Extraire le texte lisible
+        if ext == '.rtf':
+            text = _strip_rtf(self.raw_text)
+        else:
+            text = self.raw_text
+
+        # Parser les paires label → valeur
+        self.parsed = self._extract_key_values(text)
+
+        # Valider la présence des données essentielles
+        essential = ["pump_id", "label", "flow_lps", "pump_head_m"]
+        missing = [k for k in essential if k not in self.parsed]
+        if missing:
+            self.errors.append(f"Champs essentiels manquants : {', '.join(missing)}")
+            return False
+
+        return True
+
+    def _extract_key_values(self, text: str) -> dict:
+        """
+        Extrait les paires Label / Valeur depuis le texte brut du rapport RTF.
+        Deux phases :
+          1. Section Scenario Summary → ID, Label, Downstream Pipe, Speed Factor, Status
+          2. Section Pump Data → Flow, Head, Pressures, NPSH
+        """
+        result = {}
+        lines = [l.strip() for l in text.split('\n') if l.strip()]
+
+        # Patterns de valeurs connues (unités, etc.) à ignorer comme valeur
+        _UNIT_PATTERNS = {
+            "m", "mm", "m³", "l", "l/s", "m³/h", "bar", "bars",
+            "sec", "hours", "kW", "kwh", "mg/l", "%", "°", "kg/day",
+            "€", "€/kW", "€/kWh", "€/ML", "mL",
+        }
+
+        def _is_positioning_number(s: str) -> bool:
+            """Vérifie si c'est un nombre de positionnement RTF (négatif, sans décimale)."""
+            s = s.strip()
+            if not s.startswith("-"):
+                return False
+            num_part = s[1:]
+            if not num_part.isdigit():
+                return False
+            return int(num_part) > 20
+
+        def _is_skip_line(s: str) -> bool:
+            """Vérifie si une ligne doit être ignorée comme valeur."""
+            s_lower = s.strip().lower()
+            if not s_lower:
+                return True
+            if _is_positioning_number(s):
+                return True
+            if s_lower in _UNIT_PATTERNS:
+                return True
+            if s_lower in ("<none>", "<collection: 0 items>", "none"):
+                return True
+            if s_lower.startswith("<") and s_lower.endswith(">"):
+                return True
+            if any(p in s_lower for p in self._KEY_MAP.keys()):
+                return True
+            return False
+
+        # Identifier les indices des deux sections
+        first_report_idx = -1
+        second_report_idx = -1
+        for idx, line in enumerate(lines):
+            if "pump detailed report" in line.lower():
+                if first_report_idx == -1:
+                    first_report_idx = idx
+                else:
+                    second_report_idx = idx
+                    break
+
+        # Phase 1 : Identifier les champs depuis la première section
+        # Chercher spécifiquement la section <General> qui contient ID/Label
+        _phase1_keys = {"pump_id", "label", "downstream_pipe", "speed_factor", "status_initial"}
+        if first_report_idx >= 0:
+            # Trouver la section <General>
+            general_start = -1
+            for idx in range(first_report_idx + 1, second_report_idx if second_report_idx > 0 else len(lines)):
+                if lines[idx].strip().lower() == "<general>":
+                    general_start = idx
+                    break
+
+            search_start = general_start if general_start >= 0 else first_report_idx + 1
+            search_end = second_report_idx if second_report_idx > 0 else len(lines)
+            i = search_start
+            while i < len(lines) - 1 and i < search_end:
+                line = lines[i]
+                line_lower = line.lower()
+                for pattern, key in self._KEY_MAP.items():
+                    if key in _phase1_keys and pattern in line_lower and key not in result:
+                        val_text = None
+                        for j in range(i + 1, min(i + 6, len(lines))):
+                            candidate = lines[j]
+                            if not _is_skip_line(candidate):
+                                val_text = candidate
+                                break
+                        if val_text is not None:
+                            val_clean = val_text.strip()
+                            if val_clean.startswith("(") and val_clean.endswith(")"):
+                                val_clean = val_clean[1:-1]
+                            if val_clean.upper() in ("N/A", "NONE", ""):
+                                result[key] = None
+                            elif key == "controlled":
+                                result[key] = val_clean.lower() in ("true", "yes", "oui", "1")
+                            elif key in ("pump_id", "label", "downstream_pipe", "status_initial"):
+                                result[key] = val_clean
+                            else:
+                                parsed = _parse_number(val_clean)
+                                if parsed is not None:
+                                    result[key] = parsed
+                        break
+                i += 1
+
+        # Phase 2 : Données opérées depuis la deuxième section
+        if second_report_idx >= 0:
+            i = second_report_idx + 1
+            while i < len(lines) - 1:
+                line = lines[i]
+                line_lower = line.lower()
+                for pattern, key in self._KEY_MAP.items():
+                    if key not in _phase1_keys and pattern in line_lower and key not in result:
+                        val_text = None
+                        for j in range(i + 1, min(i + 6, len(lines))):
+                            candidate = lines[j]
+                            if not _is_skip_line(candidate):
+                                val_text = candidate
+                                break
+                        if val_text is not None:
+                            val_clean = val_text.strip()
+                            if val_clean.startswith("(") and val_clean.endswith(")"):
+                                val_clean = val_clean[1:-1]
+                            if val_clean.upper() in ("N/A", "NONE", ""):
+                                result[key] = None
+                            elif key == "controlled":
+                                result[key] = val_clean.lower() in ("true", "yes", "oui", "1")
+                            else:
+                                parsed = _parse_number(val_clean)
+                                if parsed is not None:
+                                    result[key] = parsed
+                        break
+                i += 1
+
+        return {k: v for k, v in result.items() if not k.startswith("_")}
+
+    def get_curve_points(self) -> list[dict]:
+        """Retourne les points de courbe H(Q) saisis manuellement."""
+        return list(self.curve_points)
+
+    def add_curve_point(self, flow_lps: float, head_m: float):
+        """Ajoute un point à la courbe H(Q)."""
+        self.curve_points.append({"flow_lps": flow_lps, "head_m": head_m})
+        self.curve_points.sort(key=lambda p: p["flow_lps"])
+
+    def clear_curve_points(self):
+        """Vide tous les points de courbe."""
+        self.curve_points = []
+
+    def interpolate_head(self, flow_lps: float) -> float | None:
+        """
+        Interpole la hauteur manométrique H pour un débit donné (L/s)
+        en utilisant les points de courbe enregistrés.
+        Retourne None si pas assez de points.
+        """
+        pts = self.curve_points
+        if len(pts) < 2:
+            return None
+
+        flows = [p["flow_lps"] for p in pts]
+        heads = [p["head_m"] for p in pts]
+
+        # Extrapolation linéaire simple
+        if flow_lps <= flows[0]:
+            # Extrapolation vers le zéro (shutoff)
+            if len(pts) >= 2:
+                slope = (heads[1] - heads[0]) / (flows[1] - flows[0]) if flows[1] != flows[0] else 0
+                return heads[0] + slope * (flow_lps - flows[0])
+            return heads[0]
+
+        if flow_lps >= flows[-1]:
+            # Extrapolation au-delà du max
+            if len(pts) >= 2:
+                slope = (heads[-1] - heads[-2]) / (flows[-1] - flows[-2]) if flows[-1] != flows[-2] else 0
+                return heads[-1] + slope * (flow_lps - flows[-1])
+            return heads[-1]
+
+        # Interpolation linéaire entre deux points
+        for j in range(len(flows) - 1):
+            if flows[j] <= flow_lps <= flows[j + 1]:
+                t = ((flow_lps - flows[j]) / (flows[j + 1] - flows[j])
+                     if flows[j + 1] != flows[j] else 0)
+                return heads[j] + t * (heads[j + 1] - heads[j])
+
+        return None
+
+    def get_summary(self) -> dict:
+        """Retourne un résumé des données extraites pour l'UI."""
+        return {
+            "label": self.parsed.get("label", "—"),
+            "pump_id": self.parsed.get("pump_id", "—"),
+            "flow_lps": self.parsed.get("flow_lps"),
+            "pump_head_m": self.parsed.get("pump_head_m"),
+            "pressure_suction_bar": self.parsed.get("pressure_suction_bar"),
+            "pressure_discharge_bar": self.parsed.get("pressure_discharge_bar"),
+            "npsh_available_m": self.parsed.get("npsh_available_m"),
+            "npsh_required_m": self.parsed.get("npsh_required_m"),
+            "downstream_pipe": self.parsed.get("downstream_pipe", "—"),
+            "controlled": self.parsed.get("controlled", False),
+            "n_curve_points": len(self.curve_points),
+        }
+
+
+# =====================================================================
 # 2. GÉNÉRATION DU RAPPORT WORD
 # =====================================================================
 
@@ -696,7 +1094,8 @@ class WordReportGenerator:
                  flow_unit: str = "m³/h",
                  volume_unit: str = "L",
                  volume_threshold_disp: float = 200.0,
-                 workbook_summary: dict | None = None) -> Document:
+                 workbook_summary: dict | None = None,
+                 pump_summary: dict | None = None) -> Document:
         """
         Génère le contenu complet du rapport Word.
 
@@ -713,6 +1112,7 @@ class WordReportGenerator:
             volume_threshold_disp : Seuil HPT affiché dans l'unité choisie.
             chart_png_path : Chemin vers l'image PNG du graphique.
             workbook_summary : Résumé du classeur HAMMER (dict du WorkbookManager.get_summary()).
+            pump_summary    : Résumé du rapport pompe (dict du PumpReportParser.get_summary()).
 
         Returns:
             Le Document Word peuplé.
@@ -878,6 +1278,73 @@ class WordReportGenerator:
             if vmax_pump is not None:
                 self._add_key_value("Débit max pompe (modèle)",
                                     f"{vmax_pump:.1f} L/s")
+
+            self.doc.add_paragraph()
+
+        # ── Données Pompe (rapport détaillé) ─────────────────────────
+        if pump_summary and pump_summary.get("label") and pump_summary["label"] != "—":
+            self._add_separator()
+            self._add_title("2b. Données Pompe (Rapport Détaillé)", level=1)
+
+            p_intro = self.doc.add_paragraph(
+                "Les données ci-dessous proviennent du rapport détaillé pompe exporté depuis "
+                "Bentley HAMMER. Elles caractérisent le point de fonctionnement nominal et la "
+                "courbe H(Q) de la pompe analysée."
+            )
+            p_intro.runs[0].font.color.rgb = RGBColor(0x44, 0x44, 0x44)
+            self.doc.add_paragraph()
+
+            # Tableau récapitulatif pompe
+            pump_rows = [
+                ("Identifiant",     str(pump_summary.get("pump_id", "—"))),
+                ("Label",           str(pump_summary.get("label", "—"))),
+                ("Conduite aval",   str(pump_summary.get("downstream_pipe", "—"))),
+                ("Débit nominal (Q)",
+                 f"{pump_summary['flow_lps']:.1f} L/s" if pump_summary.get("flow_lps") is not None else "—"),
+                ("HMT pompe",
+                 f"{pump_summary['pump_head_m']:.1f} m" if pump_summary.get("pump_head_m") is not None else "—"),
+                ("Pression aspiration",
+                 f"{pump_summary['pressure_suction_bar']:.2f} bar" if pump_summary.get("pressure_suction_bar") is not None else "—"),
+                ("Pression refoulement",
+                 f"{pump_summary['pressure_discharge_bar']:.2f} bar" if pump_summary.get("pressure_discharge_bar") is not None else "—"),
+                ("NPSH disponible",
+                 f"{pump_summary['npsh_available_m']:.1f} m" if pump_summary.get("npsh_available_m") is not None else "—"),
+                ("NPSH requis",
+                 f"{pump_summary['npsh_required_m']:.1f} m" if pump_summary.get("npsh_required_m") is not None else "N/D"),
+                ("Points courbe H(Q)",
+                 str(pump_summary.get("n_curve_points", 0))),
+            ]
+
+            tbl = self.doc.add_table(rows=len(pump_rows) + 1, cols=2)
+            tbl.style = "Table Grid"
+            tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+            hdrs = ["Paramètre", "Valeur"]
+            for j, h in enumerate(hdrs):
+                run = tbl.rows[0].cells[j].paragraphs[0].add_run(h)
+                run.bold = True
+                run.font.color.rgb = self._rgb(self.COULEUR_TITRE_HEX)
+
+            for i, (label, val) in enumerate(pump_rows):
+                tbl.rows[i + 1].cells[0].paragraphs[0].add_run(label)
+                tbl.rows[i + 1].cells[1].paragraphs[0].add_run(val)
+
+            self.doc.add_paragraph()
+
+            # Alerte NPSH
+            npsh_a = pump_summary.get("npsh_available_m")
+            if npsh_a is not None:
+                if npsh_a < 3:
+                    self._add_alert(
+                        f"NPSH disponible faible ({npsh_a:.1f} m). "
+                        "Risque de cavitation. Vérifier l'altitude d'aspiration.",
+                        "warning"
+                    )
+                else:
+                    self._add_alert(
+                        f"NPSH disponible ({npsh_a:.1f} m) suffisant.",
+                        "ok"
+                    )
 
             self.doc.add_paragraph()
 
@@ -1084,11 +1551,13 @@ class HammerPyApp(ctk.CTk):
         # ── Initialisation du parser ────────────────────────────────────
         self.parser = HammerDataParser()
         self.workbook_manager = WorkbookManager()
+        self.pump_parser = PumpReportParser()
 
         # ── État de l'application ───────────────────────────────────────
         self.station_filepath: str = ""
         self.hpt_filepath: str = ""
         self.workbook_filepath: str = ""
+        self.pump_filepath: str = ""
         self.steady_state_status: dict | None = None
         self.transient_status: dict | None = None
 
@@ -1470,7 +1939,7 @@ class HammerPyApp(ctk.CTk):
     def _setup_transient_tab(self):
         tab = self.tabview.tab("Analyse Transitoire")
         tab.grid_columnconfigure(0, weight=1)
-        tab.grid_rowconfigure(5, weight=1)
+        tab.grid_rowconfigure(6, weight=1)
 
         ctk.CTkLabel(tab, text="Analyse des Pressions & Volumes Transitoires",
                      font=ctk.CTkFont(size=18, weight="bold"), anchor="w"
@@ -1586,9 +2055,124 @@ class HammerPyApp(ctk.CTk):
             lbl.grid(row=1, column=col, pady=(0, 4))
             self._wb_stats[key] = lbl
 
-        # ── Zone graphique Matplotlib ────────────────────────────────
+        # ── Section 3 : Courbe H(Q) Pompe (Rapport détaillé RTF/TXT) ─
+        pump_frame = ctk.CTkFrame(tab, fg_color=("gray88", "gray14"))
+        pump_frame.grid(row=4, column=0, padx=20, pady=8, sticky="ew")
+        pump_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(pump_frame, text="COURBE H(Q) POMPE",
+                     font=ctk.CTkFont(size=11, weight="bold"), text_color="gray"
+                     ).grid(row=0, column=0, columnspan=4, padx=18, pady=(12, 4), sticky="w")
+
+        self.btn_import_pump = ctk.CTkButton(
+            pump_frame, text="  Charger rapport pompe  (.rtf / .txt)",
+            fg_color="#8b5cf6", hover_color="#6d28d9",
+            command=self._import_pump_report
+        )
+        self.btn_import_pump.grid(row=1, column=0, padx=14, pady=8, sticky="w")
+
+        self.lbl_pump_file = ctk.CTkLabel(pump_frame, text="Aucun rapport pompe chargé",
+                                          text_color="gray", anchor="w")
+        self.lbl_pump_file.grid(row=1, column=1, padx=8, pady=8, sticky="ew")
+
+        self.btn_reset_pump = ctk.CTkButton(
+            pump_frame, text="Réinitialiser", width=100,
+            fg_color="transparent", border_width=1,
+            text_color=("gray10", "gray90"),
+            hover_color=("gray75", "gray30"),
+            state="disabled",
+            command=self._reset_pump_report
+        )
+        self.btn_reset_pump.grid(row=1, column=2, padx=(0, 4), pady=8, sticky="e")
+
+        # ── KPI strip pompe ──────────────────────────────────────────
+        pump_kpi = ctk.CTkFrame(pump_frame, fg_color="transparent")
+        pump_kpi.grid(row=2, column=0, columnspan=4, padx=14, pady=(0, 8), sticky="ew")
+        pump_kpi.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+
+        self._pump_kpi = {}
+        for col, (key, label, unit) in enumerate([
+            ("label", "Pompe", ""),
+            ("flow", "Q nom.", "L/s"),
+            ("head", "HMT pompe", "m"),
+            ("npsh_a", "NPSH dispo.", "m"),
+            ("n_pts", "Pts courbe", ""),
+        ]):
+            ctk.CTkLabel(pump_kpi, text=label, font=ctk.CTkFont(size=10),
+                         text_color="gray").grid(row=0, column=col, pady=(4, 0))
+            lbl = ctk.CTkLabel(pump_kpi, text=f"— {unit}" if unit else "—",
+                               font=ctk.CTkFont(size=12, weight="bold"), text_color="#8b5cf6")
+            lbl.grid(row=1, column=col, pady=(0, 4))
+            self._pump_kpi[key] = lbl
+
+        # ── Saisie des points de courbe H(Q) ──────────────────────
+        pts_label = ctk.CTkLabel(pump_frame, text="SAISIE DES POINTS DE COURBE",
+                                 font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
+        pts_label.grid(row=3, column=0, columnspan=4, padx=18, pady=(8, 2), sticky="w")
+
+        pts_row = ctk.CTkFrame(pump_frame, fg_color="transparent")
+        pts_row.grid(row=4, column=0, columnspan=4, padx=14, pady=(0, 4), sticky="ew")
+        pts_row.grid_columnconfigure(0, weight=0)
+        pts_row.grid_columnconfigure(1, weight=0)
+        pts_row.grid_columnconfigure(2, weight=0)
+        pts_row.grid_columnconfigure(3, weight=0)
+        pts_row.grid_columnconfigure(4, weight=0)
+        pts_row.grid_columnconfigure(5, weight=1)
+
+        ctk.CTkLabel(pts_row, text="Q (L/s) :", font=ctk.CTkFont(size=10),
+                     text_color="gray").grid(row=0, column=0, padx=(0, 4), pady=4, sticky="e")
+        self.entry_pump_q = ctk.CTkEntry(pts_row, width=80, placeholder_text="ex: 75")
+        self.entry_pump_q.grid(row=0, column=1, padx=(0, 12), pady=4, sticky="w")
+
+        ctk.CTkLabel(pts_row, text="H (m) :", font=ctk.CTkFont(size=10),
+                     text_color="gray").grid(row=0, column=2, padx=(0, 4), pady=4, sticky="e")
+        self.entry_pump_h = ctk.CTkEntry(pts_row, width=80, placeholder_text="ex: 150")
+        self.entry_pump_h.grid(row=0, column=3, padx=(0, 12), pady=4, sticky="w")
+
+        self.btn_add_pump_point = ctk.CTkButton(
+            pts_row, text="+ Ajouter", width=90,
+            fg_color="#8b5cf6", hover_color="#6d28d9",
+            state="disabled",
+            command=self._on_add_pump_point
+        )
+        self.btn_add_pump_point.grid(row=0, column=4, padx=(0, 6), pady=4, sticky="w")
+
+        self.btn_clear_pump_points = ctk.CTkButton(
+            pts_row, text="Effacer tout", width=90,
+            fg_color="transparent", border_width=1,
+            text_color=("gray10", "gray90"),
+            hover_color=("gray75", "gray30"),
+            state="disabled",
+            command=self._on_clear_pump_points
+        )
+        self.btn_clear_pump_points.grid(row=0, column=5, padx=0, pady=4, sticky="w")
+
+        # ── Liste des points saisis ────────────────────────────────
+        self.txt_pump_points = ctk.CTkTextbox(
+            pump_frame, height=60, font=ctk.CTkFont(family="Consolas", size=10),
+            state="disabled", fg_color=("gray92", "gray18")
+        )
+        self.txt_pump_points.grid(row=5, column=0, columnspan=4, padx=14, pady=(0, 8), sticky="ew")
+
+        # ── Graphique H(Q) ─────────────────────────────────────────
+        self.pump_curve_frame = ctk.CTkFrame(tab, fg_color=("gray85", "gray12"))
+        self.pump_curve_frame.grid(row=5, column=0, padx=20, pady=(0, 8), sticky="nsew")
+        self.pump_curve_frame.grid_rowconfigure(0, weight=1)
+        self.pump_curve_frame.grid_columnconfigure(0, weight=1)
+
+        self.lbl_pump_curve_placeholder = ctk.CTkLabel(
+            self.pump_curve_frame,
+            text="📈   La courbe H(Q) s'affichera ici après saisie de ≥ 2 points.",
+            text_color="gray", justify="center"
+        )
+        self.lbl_pump_curve_placeholder.grid(row=0, column=0, padx=20, pady=30, sticky="nsew")
+
+        self.pump_curve_canvas = None
+        self.pump_curve_toolbar = None
+
+        # ── Zone graphique Matplotlib (HPT) ────────────────────────
         self.plot_placeholder_frame = ctk.CTkFrame(tab, fg_color=("gray85", "gray12"))
-        self.plot_placeholder_frame.grid(row=5, column=0, padx=20, pady=(0, 12), sticky="nsew")
+        self.plot_placeholder_frame.grid(row=6, column=0, padx=20, pady=(0, 12), sticky="nsew")
         self.plot_placeholder_frame.grid_rowconfigure(0, weight=1)
         self.plot_placeholder_frame.grid_columnconfigure(0, weight=1)
 
@@ -1976,9 +2560,233 @@ class HammerPyApp(ctk.CTk):
             lbl.configure(text=f"— {unit}" if unit else "—", text_color="#1f8ecf")
         self._mark_dirty()
 
-    # ================================================================
-    # GRAPHIQUE MATPLOTLIB
-    # ================================================================
+    # ------------------------------------------------------------------
+    # Import du rapport pompe (RTF / TXT)
+    # ------------------------------------------------------------------
+    def _import_pump_report(self):
+        """Charge un rapport pompe et affiche le résumé."""
+        filepath = filedialog.askopenfilename(
+            title="Sélectionner le rapport pompe détaillé",
+            filetypes=[("Rapport pompe", "*.rtf *.txt"), ("Tous", "*.*")]
+        )
+        if not filepath:
+            return
+
+        ok = self.pump_parser.load(filepath)
+        if not ok:
+            self.lbl_pump_file.configure(
+                text="❌ " + "; ".join(self.pump_parser.errors[:2]),
+                text_color="tomato"
+            )
+            messagebox.showerror(
+                "Rapport invalide",
+                "Impossible d'extraire les données pompe :\n\n"
+                + "\n".join(self.pump_parser.errors))
+            return
+
+        self.pump_filepath = filepath
+        self.lbl_pump_file.configure(
+            text=os.path.basename(filepath),
+            text_color=("gray20", "gray80")
+        )
+        self.btn_reset_pump.configure(state="normal")
+        self.btn_add_pump_point.configure(state="normal")
+        self.btn_clear_pump_points.configure(state="normal")
+
+        # Mettre à jour les KPI pompe
+        summary = self.pump_parser.get_summary()
+        self._pump_kpi["label"].configure(text=summary["label"])
+        self._pump_kpi["flow"].configure(
+            text=f"{summary['flow_lps']:.1f} L/s" if summary["flow_lps"] is not None else "— L/s")
+        self._pump_kpi["head"].configure(
+            text=f"{summary['pump_head_m']:.1f} m" if summary["pump_head_m"] is not None else "— m")
+        npsh_a = summary["npsh_available_m"]
+        self._pump_kpi["npsh_a"].configure(
+            text=f"{npsh_a:.1f} m" if npsh_a is not None else "— m",
+            text_color="#33a02c" if npsh_a is not None and npsh_a > 3 else "#e87c2a")
+        self._pump_kpi["n_pts"].configure(text=str(summary["n_curve_points"]))
+
+        self._mark_dirty()
+        messagebox.showinfo(
+            "Rapport pompe chargé",
+            f"Pompe : {summary['label']} (ID {summary['pump_id']})\n"
+            f"Débit nominal : {summary['flow_lps']} L/s\n"
+            f"HMT pompe : {summary['pump_head_m']} m\n"
+            f"NPSH disponible : {summary['npsh_available_m']} m\n\n"
+            "Vous pouvez maintenant saisir des points de courbe H(Q) manuellement\n"
+            "si vous disposez de la courbe constructeur."
+        )
+
+    def _reset_pump_report(self):
+        """Réinitialise le rapport pompe chargé."""
+        self.pump_parser = PumpReportParser()
+        self.pump_filepath = ""
+        self.lbl_pump_file.configure(text="Aucun rapport pompe chargé", text_color="gray")
+        self.btn_reset_pump.configure(state="disabled")
+        self.btn_add_pump_point.configure(state="disabled")
+        self.btn_clear_pump_points.configure(state="disabled")
+        for key, lbl in self._pump_kpi.items():
+            unit = {"flow": "L/s", "head": "m", "npsh_a": "m", "n_pts": ""}.get(key, "")
+            lbl.configure(text=f"— {unit}" if unit else "—", text_color="#8b5cf6")
+        self._update_pump_points_display()
+        self._clear_pump_curve_chart()
+        self._mark_dirty()
+
+    def _on_add_pump_point(self):
+        """Ajoute un point (Q, H) à la courbe."""
+        q_str = self.entry_pump_q.get().strip()
+        h_str = self.entry_pump_h.get().strip()
+        if not q_str or not h_str:
+            messagebox.showwarning("Champs requis", "Veuillez saisir Q (L/s) et H (m).")
+            return
+        try:
+            q = float(q_str.replace(",", "."))
+            h = float(h_str.replace(",", "."))
+        except ValueError:
+            messagebox.showerror("Erreur de saisie",
+                                 f"Valeurs invalides :\nQ = « {q_str} »\nH = « {h_str} »\n\n"
+                                 "Entrez des nombres décimaux (ex: 75 ou 150,5).")
+            return
+        if q < 0 or h < 0:
+            messagebox.showwarning("Valeur négative", "Q et H doivent être ≥ 0.")
+            return
+
+        self.pump_parser.add_curve_point(q, h)
+        self.entry_pump_q.delete(0, "end")
+        self.entry_pump_h.delete(0, "end")
+        self.entry_pump_q.focus_set()
+        self._update_pump_points_display()
+        self._update_pump_curve_chart()
+        self._pump_kpi["n_pts"].configure(text=str(len(self.pump_parser.curve_points)))
+        self._mark_dirty()
+
+    def _on_clear_pump_points(self):
+        """Efface tous les points de courbe."""
+        if self.pump_parser.curve_points:
+            if not messagebox.askyesno("Confirmer",
+                                       "Effacer tous les points de courbe saisis ?"):
+                return
+        self.pump_parser.clear_curve_points()
+        self._update_pump_points_display()
+        self._clear_pump_curve_chart()
+        self._pump_kpi["n_pts"].configure(text="0")
+        self._mark_dirty()
+
+    def _update_pump_points_display(self):
+        """Rafraîchit la zone texte avec la liste des points."""
+        self.txt_pump_points.configure(state="normal")
+        self.txt_pump_points.delete("1.0", "end")
+        pts = self.pump_parser.curve_points
+        if not pts:
+            self.txt_pump_points.insert("1.0", "  (aucun point saisi)")
+        else:
+            header = f"  {'#':>3}   {'Q (L/s)':>10}   {'H (m)':>10}\n"
+            self.txt_pump_points.insert("1.0", header + "  " + "─" * 30 + "\n")
+            for i, p in enumerate(pts, 1):
+                line = f"  {i:>3}   {p['flow_lps']:>10.1f}   {p['head_m']:>10.1f}\n"
+                self.txt_pump_points.insert("end", line)
+        self.txt_pump_points.configure(state="disabled")
+
+    def _update_pump_curve_chart(self):
+        """Trace / rafraîchit le graphique H(Q) dans l'onglet Analyse Transitoire."""
+        # Nettoyage de l'ancien canvas
+        if self.pump_curve_canvas:
+            self.pump_curve_canvas.get_tk_widget().destroy()
+            self.pump_curve_canvas = None
+        if self.pump_curve_toolbar:
+            self.pump_curve_toolbar.destroy()
+            self.pump_curve_toolbar = None
+
+        pts = self.pump_parser.curve_points
+        if len(pts) < 2:
+            self.lbl_pump_curve_placeholder.grid(
+                row=0, column=0, padx=20, pady=30, sticky="nsew")
+            return
+
+        self.lbl_pump_curve_placeholder.grid_forget()
+
+        import numpy as np
+        from matplotlib.figure import Figure
+
+        q_pts = np.array([p["flow_lps"] for p in pts])
+        h_pts = np.array([p["head_m"] for p in pts])
+
+        # Interpolation polynomiale (degré max 3)
+        deg = min(len(pts) - 1, 3)
+        coeffs = np.polyfit(q_pts, h_pts, deg)
+        poly = np.poly1d(coeffs)
+
+        q_min, q_max = q_pts.min(), q_pts.max()
+        margin = max((q_max - q_min) * 0.15, 5.0)
+        q_smooth = np.linspace(max(0, q_min - margin), q_max + margin, 200)
+        h_smooth = np.maximum(poly(q_smooth), 0)
+
+        # Couleurs thème
+        mode = ctk.get_appearance_mode()
+        if mode == "Dark":
+            bg, ax_bg = "#1a1a2e", "#16213e"
+            text_c, grid_c, spine_c = "#e0e0e0", "#333355", "#555577"
+        else:
+            bg, ax_bg = "#f8f9fa", "#ffffff"
+            text_c, grid_c, spine_c = "#333333", "#dddddd", "#cccccc"
+        curve_c  = "#8b5cf6"
+        point_c  = "#f59e0b"
+
+        fig = Figure(figsize=(7, 3.5), dpi=100)
+        fig.patch.set_facecolor(bg)
+        ax = fig.add_subplot(111)
+        ax.set_facecolor(ax_bg)
+
+        ax.plot(q_smooth, h_smooth, color=curve_c, lw=2.5, label="H(Q) interpolée", zorder=3)
+        ax.scatter(q_pts, h_pts, color=point_c, s=90, zorder=5, edgecolors="white",
+                   linewidths=1.2, label="Points saisis")
+
+        # Point nominal si disponible
+        flow_nom = self.pump_parser.parsed.get("flow_lps")
+        head_nom = self.pump_parser.parsed.get("pump_head_m")
+        if flow_nom and head_nom:
+            ax.scatter([flow_nom], [head_nom], color="#ef4444", s=120, zorder=6,
+                       edgecolors="white", linewidths=1.5, marker="D",
+                       label=f"Nominal ({flow_nom:.0f} L/s, {head_nom:.1f} m)")
+
+        ax.set_xlabel("Débit Q (L/s)", color=text_c, fontweight="bold", fontsize=10)
+        ax.set_ylabel("HMT H (m)", color=text_c, fontweight="bold", fontsize=10)
+        label_pump = self.pump_parser.parsed.get("label", "Pompe")
+        ax.set_title(f"Courbe H(Q) — {label_pump}", color=text_c, fontsize=11, fontweight="bold")
+        ax.tick_params(colors=text_c, labelsize=9)
+        ax.grid(True, color=grid_c, ls=":", alpha=0.7)
+        ax.legend(fontsize=8, loc="upper right", framealpha=0.85,
+                  facecolor=ax_bg, labelcolor=text_c, edgecolor=spine_c)
+        for sp in ax.spines.values():
+            sp.set_color(spine_c)
+
+        fig.tight_layout(pad=1.5)
+
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+        import tkinter as tk
+
+        self.pump_curve_canvas = FigureCanvasTkAgg(fig, master=self.pump_curve_frame)
+        self.pump_curve_canvas.get_tk_widget().grid(
+            row=0, column=0, sticky="nsew", padx=4, pady=4)
+
+        toolbar_bg = bg.replace("#", "")
+        self.pump_curve_toolbar = tk.Frame(self.pump_curve_frame, bg=toolbar_bg)
+        self.pump_curve_toolbar.grid(row=1, column=0, sticky="ew", padx=4)
+        self.pump_curve_toolbar = NavigationToolbar2Tk(
+            self.pump_curve_canvas, self.pump_curve_toolbar)
+        self.pump_curve_toolbar.update()
+        self.pump_curve_canvas.draw()
+
+    def _clear_pump_curve_chart(self):
+        """Efface le graphique H(Q)."""
+        if self.pump_curve_canvas:
+            self.pump_curve_canvas.get_tk_widget().destroy()
+            self.pump_curve_canvas = None
+        if self.pump_curve_toolbar:
+            self.pump_curve_toolbar.destroy()
+            self.pump_curve_toolbar = None
+        self.lbl_pump_curve_placeholder.grid(
+            row=0, column=0, padx=20, pady=30, sticky="nsew")
 
     def _update_chart(self):
         """Trace / rafraîchit le graphique interactif dans l'onglet Analyse Transitoire."""
@@ -2145,6 +2953,30 @@ class HammerPyApp(ctk.CTk):
             f"  Débit nominal (Q)        : {flow_disp}",
             f"  HMT                      : {hmt} mCE",
             "",
+        ]
+
+        # Section Pompe (si disponible)
+        pump_summary = self.pump_parser.get_summary() if self.pump_parser.parsed else None
+        if pump_summary and pump_summary.get("label") and pump_summary["label"] != "—":
+            pump_file = os.path.basename(self.pump_filepath) if self.pump_filepath else "Non chargé"
+            pump_flow = f"{pump_summary['flow_lps']:.1f} L/s" if pump_summary.get("flow_lps") is not None else "—"
+            pump_head = f"{pump_summary['pump_head_m']:.1f} m" if pump_summary.get("pump_head_m") is not None else "—"
+            npsh_a = f"{pump_summary['npsh_available_m']:.1f} m" if pump_summary.get("npsh_available_m") is not None else "—"
+            lines += [
+                "─" * 70,
+                "  1b. DONNÉES POMPE (Rapport Détaillé)",
+                "─" * 70,
+                f"  Fichier rapport pompe    : {pump_file}",
+                f"  Pompe                    : {pump_summary['label']} (ID {pump_summary['pump_id']})",
+                f"  Conduite aval            : {pump_summary.get('downstream_pipe', '—')}",
+                f"  Débit nominal (Q)        : {pump_flow}",
+                f"  HMT pompe                : {pump_head}",
+                f"  NPSH disponible          : {npsh_a}",
+                f"  Points courbe H(Q)       : {pump_summary.get('n_curve_points', 0)}",
+                "",
+            ]
+
+        lines += [
             "─" * 70,
             "  2. ANALYSE TRANSITOIRE — COURBES ENVELOPPES HPT",
             "─" * 70,
@@ -2314,6 +3146,11 @@ class HammerPyApp(ctk.CTk):
             "workbook": {
                 "filepath": self.workbook_filepath,
                 "sheets":   workbook_data,
+            },
+            "pump": {
+                "filepath":     self.pump_filepath,
+                "parsed":       self.pump_parser.parsed,
+                "curve_points": self.pump_parser.curve_points,
             },
             "report_text": (self.txt_report.get("1.0", tk.END)
                             if hasattr(self, "txt_report") else ""),
@@ -2504,6 +3341,37 @@ class HammerPyApp(ctk.CTk):
                     text=", ".join(mats) if mats else "—")
             else:
                 self._reset_workbook()
+
+            # ── Pompe (rapport détaillé, v3.0+) ───────────────────────
+            pump_data = payload.get("pump", {})
+            self.pump_filepath = pump_data.get("filepath", "") or ""
+            if pump_data.get("parsed"):
+                self.pump_parser = PumpReportParser()
+                self.pump_parser.filepath = self.pump_filepath
+                self.pump_parser.parsed = pump_data["parsed"]
+                self.pump_parser.curve_points = pump_data.get("curve_points", [])
+
+                self.lbl_pump_file.configure(
+                    text=os.path.basename(self.pump_filepath)
+                         if self.pump_filepath else "Aucun rapport pompe chargé",
+                    text_color=("gray20", "gray80")
+                              if self.pump_filepath else "gray")
+                self.btn_reset_pump.configure(
+                    state="normal" if self.pump_filepath else "disabled")
+
+                summary = self.pump_parser.get_summary()
+                self._pump_kpi["label"].configure(text=summary["label"])
+                self._pump_kpi["flow"].configure(
+                    text=f"{summary['flow_lps']:.1f} L/s" if summary["flow_lps"] is not None else "— L/s")
+                self._pump_kpi["head"].configure(
+                    text=f"{summary['pump_head_m']:.1f} m" if summary["pump_head_m"] is not None else "— m")
+                npsh_a = summary["npsh_available_m"]
+                self._pump_kpi["npsh_a"].configure(
+                    text=f"{npsh_a:.1f} m" if npsh_a is not None else "— m",
+                    text_color="#33a02c" if npsh_a is not None and npsh_a > 3 else "#e87c2a")
+                self._pump_kpi["n_pts"].configure(text=str(summary["n_curve_points"]))
+            else:
+                self._reset_pump_report()
 
             # ── Rapport ──────────────────────────────────────────────
             report_text = payload.get("report_text", "")
@@ -2720,6 +3588,10 @@ class HammerPyApp(ctk.CTk):
             if self.workbook_manager.sheets:
                 wb_summary = self.workbook_manager.get_summary()
 
+            pump_summary = None
+            if self.pump_parser.parsed:
+                pump_summary = self.pump_parser.get_summary()
+
             gen = WordReportGenerator()
             doc = gen.generate(
                 metadata              = metadata,
@@ -2734,6 +3606,7 @@ class HammerPyApp(ctk.CTk):
                 volume_threshold_disp = self._volume_threshold_display(),
                 chart_png_path        = chart_path,
                 workbook_summary      = wb_summary,
+                pump_summary          = pump_summary,
             )
             doc.save(filepath)
             messagebox.showinfo("Export réussi",

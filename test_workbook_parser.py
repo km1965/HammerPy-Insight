@@ -13,7 +13,7 @@ import pandas as pd
 # Ajouter le répertoire courant au path pour importer main
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from main import _parse_number, WorkbookManager, _find_col_in_df
+from main import _parse_number, WorkbookManager, _find_col_in_df, PumpReportParser
 
 
 # =====================================================================
@@ -278,6 +278,121 @@ class TestRetrocompatCSV:
         result = parser.parse_station_file(path)
         assert result["success"]
         assert result["n_rows"] > 0
+
+
+# =====================================================================
+# Tests pour PumpReportParser
+# =====================================================================
+
+class TestPumpReportParser:
+    """Tests du parser de rapport pompe détaillé (RTF)."""
+
+    def test_load_real_rtf(self):
+        """Charge le fichier RTF réel du rapport pompe PMP-2."""
+        path = os.path.join(os.path.dirname(__file__), "Pump detailed report.rtf")
+        if not os.path.exists(path):
+            pytest.skip("Fichier RTF de test non disponible")
+        parser = PumpReportParser()
+        ok = parser.load(path)
+        assert ok, f"Erreurs : {parser.errors}"
+        assert parser.parsed.get("label") == "PMP-2"
+        assert parser.parsed.get("pump_id") == "122"
+        assert parser.parsed.get("flow_lps") == 100.0
+        assert parser.parsed.get("pump_head_m") == 110.80
+        assert parser.parsed.get("pressure_suction_bar") == 0.54
+        assert parser.parsed.get("pressure_discharge_bar") == 11.38
+        assert parser.parsed.get("npsh_available_m") == 15.35
+        assert parser.parsed.get("downstream_pipe") == "P-4"
+        assert parser.parsed.get("controlled") is False
+
+    def test_load_unsupported_ext(self):
+        parser = PumpReportParser()
+        ok = parser.load("test.xlsx")
+        assert not ok
+        assert any("non supportée" in e for e in parser.errors)
+
+    def test_load_nonexistent_file(self):
+        parser = PumpReportParser()
+        ok = parser.load("nonexistent_file.rtf")
+        assert not ok
+
+    def test_strip_rtf_basic(self):
+        from main import _strip_rtf
+        rtf = r"{\rtf1 Some text \b bold \b0 normal}"
+        text = _strip_rtf(rtf)
+        assert "Some text" in text
+        assert "normal" in text
+
+    def test_strip_rtf_images(self):
+        from main import _strip_rtf
+        rtf = r"Before \pict\picw100\pich100 data After"
+        text = _strip_rtf(rtf)
+        assert "Before" in text
+        assert "After" in text
+
+    def test_curve_points_empty(self):
+        parser = PumpReportParser()
+        assert parser.get_curve_points() == []
+        assert parser.interpolate_head(50.0) is None
+
+    def test_curve_points_add_and_interpolate(self):
+        parser = PumpReportParser()
+        parser.add_curve_point(0.0, 200.0)    # Shutoff
+        parser.add_curve_point(75.0, 150.0)   # Design
+        parser.add_curve_point(150.0, 50.0)   # Max op
+
+        pts = parser.get_curve_points()
+        assert len(pts) == 3
+        assert pts[0]["flow_lps"] == 0.0
+        assert pts[2]["flow_lps"] == 150.0
+
+        # Interpolation
+        h = parser.interpolate_head(75.0)
+        assert h == 150.0
+
+        h = parser.interpolate_head(37.5)
+        assert h is not None
+        assert 170 < h < 180  # Between shutoff and design
+
+        # Extrapolation inférieure
+        h = parser.interpolate_head(0.0)
+        assert h == 200.0
+
+        # Extrapolation supérieure
+        h = parser.interpolate_head(200.0)
+        assert h is not None
+        assert h < 50.0
+
+    def test_clear_curve_points(self):
+        parser = PumpReportParser()
+        parser.add_curve_point(0.0, 200.0)
+        parser.add_curve_point(100.0, 100.0)
+        parser.clear_curve_points()
+        assert parser.get_curve_points() == []
+
+    def test_get_summary(self):
+        parser = PumpReportParser()
+        parser.parsed = {
+            "pump_id": "42",
+            "label": "TestPump",
+            "flow_lps": 50.0,
+            "pump_head_m": 80.0,
+            "npsh_available_m": 5.0,
+        }
+        summary = parser.get_summary()
+        assert summary["label"] == "TestPump"
+        assert summary["flow_lps"] == 50.0
+        assert summary["n_curve_points"] == 0
+
+    def test_curve_points_sorted(self):
+        parser = PumpReportParser()
+        parser.add_curve_point(100.0, 100.0)
+        parser.add_curve_point(0.0, 200.0)
+        parser.add_curve_point(50.0, 150.0)
+        pts = parser.get_curve_points()
+        assert pts[0]["flow_lps"] == 0.0
+        assert pts[1]["flow_lps"] == 50.0
+        assert pts[2]["flow_lps"] == 100.0
 
 
 # =====================================================================
