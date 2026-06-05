@@ -75,13 +75,16 @@ class HammerPyApp(ctk.CTk):
         # ── Initialisation du parser ────────────────────────────────────
         self.parser = HammerDataParser()
         self.workbook_manager = WorkbookManager()
-        self.pump_parser = PumpReportParser()
+
+        # ── Multi-pompe : liste de PumpReportParser ───────────────────
+        self.pump_parsers: list[PumpReportParser] = []
+        self.pump_selected_index: int = -1  # index de la pompe sélectionnée
+        self.var_pump_mode = tk.StringVar(value="Continu")
 
         # ── État de l'application ───────────────────────────────────────
         self.station_filepath: str = ""
         self.hpt_filepath: str = ""
         self.workbook_filepath: str = ""
-        self.pump_filepath: str = ""
         self.steady_state_status: dict | None = None
         self.transient_status: dict | None = None
 
@@ -579,68 +582,77 @@ class HammerPyApp(ctk.CTk):
             lbl.grid(row=1, column=col, pady=(0, 4))
             self._wb_stats[key] = lbl
 
-        # ── Section 3 : Courbe H(Q) Pompe (Rapport détaillé RTF/TXT) ─
+        # ── Section 3 : BATTERIE POMPES — Mode + liste + courbe H(Q) ──
         pump_frame = ctk.CTkFrame(tab, fg_color=("gray88", "gray14"))
         pump_frame.grid(row=4, column=0, padx=20, pady=8, sticky="ew")
         pump_frame.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(pump_frame, text="COURBE H(Q) POMPE",
+        # ── Ligne 0 : titre + mode de fonctionnement ─────────────────
+        ctk.CTkLabel(pump_frame, text="BATTERIE DE POMPES",
                      font=ctk.CTkFont(size=11, weight="bold"), text_color="gray"
-                     ).grid(row=0, column=0, columnspan=4, padx=18, pady=(12, 4), sticky="w")
+                     ).grid(row=0, column=0, padx=18, pady=(12, 4), sticky="w")
 
+        ctk.CTkLabel(pump_frame, text="Mode :", font=ctk.CTkFont(size=10),
+                     text_color="gray").grid(row=0, column=2, padx=(0, 4), pady=(12, 4), sticky="e")
+        self.opt_pump_mode = ctk.CTkOptionMenu(
+            pump_frame, variable=self.var_pump_mode,
+            values=["Continu", "Parallèle"], width=130,
+            command=lambda _: self._on_pump_mode_change()
+        )
+        self.opt_pump_mode.grid(row=0, column=3, padx=(0, 14), pady=(12, 4), sticky="e")
+
+        # ── Ligne 1 : boutons charger / supprimer + label fichier ────
         self.btn_import_pump = ctk.CTkButton(
-            pump_frame, text="  Charger rapport pompe  (.rtf / .txt)",
+            pump_frame, text="+ Charger rapport pompe (.rtf/.txt)",
             fg_color="#8b5cf6", hover_color="#6d28d9",
             command=self._import_pump_report
         )
         self.btn_import_pump.grid(row=1, column=0, padx=14, pady=8, sticky="w")
 
-        self.lbl_pump_file = ctk.CTkLabel(pump_frame, text="Aucun rapport pompe chargé",
-                                          text_color="gray", anchor="w")
-        self.lbl_pump_file.grid(row=1, column=1, padx=8, pady=8, sticky="ew")
-
-        self.btn_reset_pump = ctk.CTkButton(
-            pump_frame, text="Réinitialiser", width=100,
-            fg_color="transparent", border_width=1,
-            text_color=("gray10", "gray90"),
-            hover_color=("gray75", "gray30"),
+        self.btn_remove_pump = ctk.CTkButton(
+            pump_frame, text="– Retirer la pompe sélectionnée", width=180,
+            fg_color="#a52828", hover_color="#7a1d1d",
             state="disabled",
-            command=self._reset_pump_report
+            command=self._remove_pump
         )
-        self.btn_reset_pump.grid(row=1, column=2, padx=(0, 4), pady=8, sticky="e")
+        self.btn_remove_pump.grid(row=1, column=1, padx=(0, 4), pady=8, sticky="w")
 
-        # ── KPI strip pompe ──────────────────────────────────────────
+        # ── Ligne 2 : liste des pompes chargées ──────────────────────
+        self.lst_pumps = ctk.CTkTextbox(
+            pump_frame, height=70, font=ctk.CTkFont(family="Consolas", size=10),
+            state="disabled", fg_color=("gray92", "gray18")
+        )
+        self.lst_pumps.grid(row=2, column=0, columnspan=4, padx=14, pady=(0, 8), sticky="ew")
+        self.lst_pumps.bind("<ButtonRelease-1>", self._on_pump_list_click)
+
+        # ── Ligne 3 : KPI strip pompe sélectionnée ───────────────────
         pump_kpi = ctk.CTkFrame(pump_frame, fg_color="transparent")
-        pump_kpi.grid(row=2, column=0, columnspan=4, padx=14, pady=(0, 8), sticky="ew")
-        pump_kpi.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        pump_kpi.grid(row=3, column=0, columnspan=4, padx=14, pady=(0, 8), sticky="ew")
+        pump_kpi.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
 
         self._pump_kpi = {}
         for col, (key, label, unit) in enumerate([
+            ("idx", "#", ""),
             ("label", "Pompe", ""),
             ("flow", "Q nom.", "L/s"),
-            ("head", "HMT pompe", "m"),
-            ("npsh_a", "NPSH dispo.", "m"),
-            ("n_pts", "Pts courbe", ""),
+            ("head", "HMT", "m"),
+            ("npsh_a", "NPSH", "m"),
+            ("n_pts", "Pts", ""),
         ]):
             ctk.CTkLabel(pump_kpi, text=label, font=ctk.CTkFont(size=10),
                          text_color="gray").grid(row=0, column=col, pady=(4, 0))
-            lbl = ctk.CTkLabel(pump_kpi, text=f"— {unit}" if unit else "—",
-                               font=ctk.CTkFont(size=12, weight="bold"), text_color="#8b5cf6")
+            lbl = ctk.CTkLabel(pump_kpi, text="—",
+                               font=ctk.CTkFont(size=11, weight="bold"), text_color="#8b5cf6")
             lbl.grid(row=1, column=col, pady=(0, 4))
             self._pump_kpi[key] = lbl
 
-        # ── Saisie des points de courbe H(Q) ──────────────────────
-        pts_label = ctk.CTkLabel(pump_frame, text="SAISIE DES POINTS DE COURBE",
+        # ── Ligne 4 : saisie points de courbe H(Q) ──────────────────
+        pts_label = ctk.CTkLabel(pump_frame, text="SAISIE POINTS DE COURBE (pompe sélectionnée)",
                                  font=ctk.CTkFont(size=10, weight="bold"), text_color="gray")
-        pts_label.grid(row=3, column=0, columnspan=4, padx=18, pady=(8, 2), sticky="w")
+        pts_label.grid(row=4, column=0, columnspan=4, padx=18, pady=(8, 2), sticky="w")
 
         pts_row = ctk.CTkFrame(pump_frame, fg_color="transparent")
-        pts_row.grid(row=4, column=0, columnspan=4, padx=14, pady=(0, 4), sticky="ew")
-        pts_row.grid_columnconfigure(0, weight=0)
-        pts_row.grid_columnconfigure(1, weight=0)
-        pts_row.grid_columnconfigure(2, weight=0)
-        pts_row.grid_columnconfigure(3, weight=0)
-        pts_row.grid_columnconfigure(4, weight=0)
+        pts_row.grid(row=5, column=0, columnspan=4, padx=14, pady=(0, 4), sticky="ew")
         pts_row.grid_columnconfigure(5, weight=1)
 
         ctk.CTkLabel(pts_row, text="Q (L/s) :", font=ctk.CTkFont(size=10),
@@ -671,14 +683,14 @@ class HammerPyApp(ctk.CTk):
         )
         self.btn_clear_pump_points.grid(row=0, column=5, padx=0, pady=4, sticky="w")
 
-        # ── Liste des points saisis ────────────────────────────────
+        # ── Ligne 6 : liste des points saisis ────────────────────────
         self.txt_pump_points = ctk.CTkTextbox(
             pump_frame, height=60, font=ctk.CTkFont(family="Consolas", size=10),
             state="disabled", fg_color=("gray92", "gray18")
         )
-        self.txt_pump_points.grid(row=5, column=0, columnspan=4, padx=14, pady=(0, 8), sticky="ew")
+        self.txt_pump_points.grid(row=6, column=0, columnspan=4, padx=14, pady=(0, 8), sticky="ew")
 
-        # ── Graphique H(Q) ─────────────────────────────────────────
+        # ── Graphique H(Q) — toutes les pompes ──────────────────────
         self.pump_curve_frame = ctk.CTkFrame(tab, fg_color=("gray85", "gray12"))
         self.pump_curve_frame.grid(row=5, column=0, padx=20, pady=(0, 8), sticky="nsew")
         self.pump_curve_frame.grid_rowconfigure(0, weight=1)
@@ -686,7 +698,7 @@ class HammerPyApp(ctk.CTk):
 
         self.lbl_pump_curve_placeholder = ctk.CTkLabel(
             self.pump_curve_frame,
-            text="📈   La courbe H(Q) s'affichera ici après saisie de ≥ 2 points.",
+            text="📈   La courbe H(Q) s'affichera ici après chargement d'au moins 1 pompe avec ≥ 2 points.",
             text_color="gray", justify="center"
         )
         self.lbl_pump_curve_placeholder.grid(row=0, column=0, padx=20, pady=30, sticky="nsew")
@@ -1085,10 +1097,20 @@ class HammerPyApp(ctk.CTk):
         self._mark_dirty()
 
     # ------------------------------------------------------------------
-    # Import du rapport pompe (RTF / TXT)
+    # MULTI-POMPE — Import, sélection, courbe, liste
     # ------------------------------------------------------------------
+    PUMP_COLORS = ["#8b5cf6", "#ef4444", "#33a02c", "#e87c2a", "#1f8ecf",
+                   "#d946ef", "#06b6d4", "#84cc16"]
+
+    def _selected_pump(self) -> PumpReportParser | None:
+        """Retourne la pompe sélectionnée, ou None."""
+        i = self.pump_selected_index
+        if 0 <= i < len(self.pump_parsers):
+            return self.pump_parsers[i]
+        return None
+
     def _import_pump_report(self):
-        """Charge un rapport pompe et affiche le résumé."""
+        """Charge un rapport pompe et l'ajoute à la batterie."""
         filepath = filedialog.askopenfilename(
             title="Sélectionner le rapport pompe détaillé",
             filetypes=[("Rapport pompe", "*.rtf *.txt"), ("Tous", "*.*")]
@@ -1096,68 +1118,129 @@ class HammerPyApp(ctk.CTk):
         if not filepath:
             return
 
-        ok = self.pump_parser.load(filepath)
+        parser = PumpReportParser()
+        ok = parser.load(filepath)
         if not ok:
-            self.lbl_pump_file.configure(
-                text="❌ " + "; ".join(self.pump_parser.errors[:2]),
-                text_color="tomato"
-            )
             messagebox.showerror(
                 "Rapport invalide",
                 "Impossible d'extraire les données pompe :\n\n"
-                + "\n".join(self.pump_parser.errors))
+                + "\n".join(parser.errors))
             return
 
-        self.pump_filepath = filepath
-        self.lbl_pump_file.configure(
-            text=os.path.basename(filepath),
-            text_color=("gray20", "gray80")
-        )
-        self.btn_reset_pump.configure(state="normal")
+        self.pump_parsers.append(parser)
+        self.pump_selected_index = len(self.pump_parsers) - 1
+
+        self._refresh_pump_list()
+        self._refresh_pump_kpi()
+        self._update_pump_points_display()
+        self.btn_remove_pump.configure(state="normal")
         self.btn_add_pump_point.configure(state="normal")
         self.btn_clear_pump_points.configure(state="normal")
-
-        # Mettre à jour les KPI pompe
-        summary = self.pump_parser.get_summary()
-        self._pump_kpi["label"].configure(text=summary["label"])
-        self._pump_kpi["flow"].configure(
-            text=f"{summary['flow_lps']:.1f} L/s" if summary["flow_lps"] is not None else "— L/s")
-        self._pump_kpi["head"].configure(
-            text=f"{summary['pump_head_m']:.1f} m" if summary["pump_head_m"] is not None else "— m")
-        npsh_a = summary["npsh_available_m"]
-        self._pump_kpi["npsh_a"].configure(
-            text=f"{npsh_a:.1f} m" if npsh_a is not None else "— m",
-            text_color="#33a02c" if npsh_a is not None and npsh_a > 3 else "#e87c2a")
-        self._pump_kpi["n_pts"].configure(text=str(summary["n_curve_points"]))
-
+        self._update_pump_curve_chart()
         self._mark_dirty()
+
+        summary = parser.get_summary()
         messagebox.showinfo(
-            "Rapport pompe chargé",
-            f"Pompe : {summary['label']} (ID {summary['pump_id']})\n"
+            "Pompe ajoutée",
+            f"Pompe #{len(self.pump_parsers)} : {summary['label']} (ID {summary['pump_id']})\n"
             f"Débit nominal : {summary['flow_lps']} L/s\n"
-            f"HMT pompe : {summary['pump_head_m']} m\n"
-            f"NPSH disponible : {summary['npsh_available_m']} m\n\n"
-            "Vous pouvez maintenant saisir des points de courbe H(Q) manuellement\n"
-            "si vous disposez de la courbe constructeur."
+            f"HMT pompe : {summary['pump_head_m']} m\n\n"
+            f"Total pompes chargées : {len(self.pump_parsers)}"
         )
 
-    def _reset_pump_report(self):
-        """Réinitialise le rapport pompe chargé."""
-        self.pump_parser = PumpReportParser()
-        self.pump_filepath = ""
-        self.lbl_pump_file.configure(text="Aucun rapport pompe chargé", text_color="gray")
-        self.btn_reset_pump.configure(state="disabled")
-        self.btn_add_pump_point.configure(state="disabled")
-        self.btn_clear_pump_points.configure(state="disabled")
-        for key, lbl in self._pump_kpi.items():
-            unit = {"flow": "L/s", "head": "m", "npsh_a": "m", "n_pts": ""}.get(key, "")
-            lbl.configure(text=f"— {unit}" if unit else "—", text_color="#8b5cf6")
+    def _remove_pump(self):
+        """Retire la pompe sélectionnée de la batterie."""
+        i = self.pump_selected_index
+        if i < 0 or i >= len(self.pump_parsers):
+            return
+        label = self.pump_parsers[i].parsed.get("label", f"Pompe #{i+1}")
+        if not messagebox.askyesno("Confirmer",
+                                   f"Retirer la pompe « {label} » de la batterie ?"):
+            return
+        self.pump_parsers.pop(i)
+        if self.pump_parsers:
+            self.pump_selected_index = min(i, len(self.pump_parsers) - 1)
+        else:
+            self.pump_selected_index = -1
+        self._refresh_pump_list()
+        self._refresh_pump_kpi()
         self._update_pump_points_display()
-        self._clear_pump_curve_chart()
+        self._update_pump_curve_chart()
+        self.btn_remove_pump.configure(
+            state="normal" if self.pump_parsers else "disabled")
         self._mark_dirty()
 
+    def _on_pump_list_click(self, _event=None):
+        """Sélection d'une pompe dans la liste."""
+        if not self.pump_parsers:
+            return
+        try:
+            index = self.lst_pump_points.index("current")
+        except Exception:
+            return
+        lines = self.lst_pump_points.get("1.0", "end").strip().split("\n")
+        if index < len(lines):
+            # Extraire le numéro de ligne depuis le texte
+            line = lines[index].strip()
+            if line and line[0].isdigit():
+                idx = int(line.split()[0]) - 1
+                if 0 <= idx < len(self.pump_parsers):
+                    self.pump_selected_index = idx
+                    self._refresh_pump_kpi()
+                    self._update_pump_points_display()
+                    self._update_pump_curve_chart()
+
+    def _on_pump_mode_change(self):
+        """Changement du mode de fonctionnement (Continu / Parallèle)."""
+        self._update_pump_curve_chart()
+        self._mark_dirty()
+
+    def _refresh_pump_list(self):
+        """Rafraîchit la liste texte des pompes chargées."""
+        self.lst_pumps.configure(state="normal")
+        self.lst_pumps.delete("1.0", "end")
+        if not self.pump_parsers:
+            self.lst_pumps.insert("1.0", "  (aucune pompe chargée)")
+        else:
+            header = f"  {'#':>2}   {'Pompe':<12} {'ID':<8} {'Q (L/s)':>8} {'HMT (m)':>8}  {'Mode'}\n"
+            self.lst_pumps.insert("1.0", header + "  " + "─" * 60 + "\n")
+            for i, p in enumerate(self.pump_parsers, 1):
+                s = p.get_summary()
+                sel = " ◄" if (i - 1) == self.pump_selected_index else ""
+                mode = self.var_pump_mode.get()
+                line = (f"  {i:>2}   {s['label']:<12} {str(s['pump_id']):<8} "
+                        f"{s['flow_lps'] or 0:>8.1f} {s['pump_head_m'] or 0:>8.1f}  "
+                        f"{mode}{sel}\n")
+                self.lst_pumps.insert("end", line)
+        self.lst_pumps.configure(state="disabled")
+
+    def _refresh_pump_kpi(self):
+        """Met à jour les KPI de la pompe sélectionnée."""
+        pump = self._selected_pump()
+        if pump is None:
+            for key, lbl in self._pump_kpi.items():
+                lbl.configure(text="—", text_color="#8b5cf6")
+            return
+        s = pump.get_summary()
+        idx = self.pump_selected_index
+        self._pump_kpi["idx"].configure(text=str(idx + 1))
+        self._pump_kpi["label"].configure(text=s["label"])
+        self._pump_kpi["flow"].configure(
+            text=f"{s['flow_lps']:.1f}" if s["flow_lps"] is not None else "—")
+        self._pump_kpi["head"].configure(
+            text=f"{s['pump_head_m']:.1f}" if s["pump_head_m"] is not None else "—")
+        npsh_a = s["npsh_available_m"]
+        self._pump_kpi["npsh_a"].configure(
+            text=f"{npsh_a:.1f}" if npsh_a is not None else "—",
+            text_color="#33a02c" if npsh_a is not None and npsh_a > 3 else "#e87c2a")
+        self._pump_kpi["n_pts"].configure(text=str(s["n_curve_points"]))
+
     def _on_add_pump_point(self):
-        """Ajoute un point (Q, H) à la courbe."""
+        """Ajoute un point (Q, H) à la courbe de la pompe sélectionnée."""
+        pump = self._selected_pump()
+        if pump is None:
+            messagebox.showwarning("Aucune pompe", "Sélectionnez d'abord une pompe dans la liste.")
+            return
         q_str = self.entry_pump_q.get().strip()
         h_str = self.entry_pump_h.get().strip()
         if not q_str or not h_str:
@@ -1175,35 +1258,41 @@ class HammerPyApp(ctk.CTk):
             messagebox.showwarning("Valeur négative", "Q et H doivent être ≥ 0.")
             return
 
-        self.pump_parser.add_curve_point(q, h)
+        pump.add_curve_point(q, h)
         self.entry_pump_q.delete(0, "end")
         self.entry_pump_h.delete(0, "end")
         self.entry_pump_q.focus_set()
         self._update_pump_points_display()
         self._update_pump_curve_chart()
-        self._pump_kpi["n_pts"].configure(text=str(len(self.pump_parser.curve_points)))
+        self._refresh_pump_kpi()
+        self._refresh_pump_list()
         self._mark_dirty()
 
     def _on_clear_pump_points(self):
-        """Efface tous les points de courbe."""
-        if self.pump_parser.curve_points:
+        """Efface tous les points de courbe de la pompe sélectionnée."""
+        pump = self._selected_pump()
+        if pump is None:
+            return
+        if pump.curve_points:
             if not messagebox.askyesno("Confirmer",
                                        "Effacer tous les points de courbe saisis ?"):
                 return
-        self.pump_parser.clear_curve_points()
+        pump.clear_curve_points()
         self._update_pump_points_display()
-        self._clear_pump_curve_chart()
-        self._pump_kpi["n_pts"].configure(text="0")
+        self._update_pump_curve_chart()
+        self._refresh_pump_kpi()
+        self._refresh_pump_list()
         self._mark_dirty()
 
     def _update_pump_points_display(self):
-        """Rafraîchit la zone texte avec la liste des points."""
+        """Rafraîchit la zone texte avec la liste des points de la pompe sélectionnée."""
         self.txt_pump_points.configure(state="normal")
         self.txt_pump_points.delete("1.0", "end")
-        pts = self.pump_parser.curve_points
-        if not pts:
+        pump = self._selected_pump()
+        if pump is None or not pump.curve_points:
             self.txt_pump_points.insert("1.0", "  (aucun point saisi)")
         else:
+            pts = pump.curve_points
             header = f"  {'#':>3}   {'Q (L/s)':>10}   {'H (m)':>10}\n"
             self.txt_pump_points.insert("1.0", header + "  " + "─" * 30 + "\n")
             for i, p in enumerate(pts, 1):
@@ -1212,8 +1301,7 @@ class HammerPyApp(ctk.CTk):
         self.txt_pump_points.configure(state="disabled")
 
     def _update_pump_curve_chart(self):
-        """Trace / rafraîchit le graphique H(Q) dans l'onglet Analyse Transitoire."""
-        # Nettoyage de l'ancien canvas
+        """Trace / rafraîchit le graphique H(Q) avec toutes les pompes de la batterie."""
         if self.pump_curve_canvas:
             self.pump_curve_canvas.get_tk_widget().destroy()
             self.pump_curve_canvas = None
@@ -1221,8 +1309,9 @@ class HammerPyApp(ctk.CTk):
             self.pump_curve_toolbar.destroy()
             self.pump_curve_toolbar = None
 
-        pts = self.pump_parser.curve_points
-        if len(pts) < 2:
+        # Vérifier qu'au moins une pompe a ≥ 2 points
+        any_curve = any(len(p.curve_points) >= 2 for p in self.pump_parsers)
+        if not any_curve:
             self.lbl_pump_curve_placeholder.grid(
                 row=0, column=0, padx=20, pady=30, sticky="nsew")
             return
@@ -1232,19 +1321,6 @@ class HammerPyApp(ctk.CTk):
         import numpy as np
         from matplotlib.figure import Figure
 
-        q_pts = np.array([p["flow_lps"] for p in pts])
-        h_pts = np.array([p["head_m"] for p in pts])
-
-        # Interpolation polynomiale (degré max 3)
-        deg = min(len(pts) - 1, 3)
-        coeffs = np.polyfit(q_pts, h_pts, deg)
-        poly = np.poly1d(coeffs)
-
-        q_min, q_max = q_pts.min(), q_pts.max()
-        margin = max((q_max - q_min) * 0.15, 5.0)
-        q_smooth = np.linspace(max(0, q_min - margin), q_max + margin, 200)
-        h_smooth = np.maximum(poly(q_smooth), 0)
-
         # Couleurs thème
         mode = ctk.get_appearance_mode()
         if mode == "Dark":
@@ -1253,41 +1329,97 @@ class HammerPyApp(ctk.CTk):
         else:
             bg, ax_bg = "#f8f9fa", "#ffffff"
             text_c, grid_c, spine_c = "#333333", "#dddddd", "#cccccc"
-        curve_c  = "#8b5cf6"
-        point_c  = "#f59e0b"
 
         fig = Figure(figsize=(7, 3.5), dpi=100)
         fig.patch.set_facecolor(bg)
         ax = fig.add_subplot(111)
         ax.set_facecolor(ax_bg)
 
-        ax.plot(q_smooth, h_smooth, color=curve_c, lw=2.5, label="H(Q) interpolée", zorder=3)
-        ax.scatter(q_pts, h_pts, color=point_c, s=90, zorder=5, edgecolors="white",
-                   linewidths=1.2, label="Points saisis")
+        q_global_max = 0
+        for idx, pump in enumerate(self.pump_parsers):
+            pts = pump.curve_points
+            if len(pts) < 2:
+                continue
+            color = self.PUMP_COLORS[idx % len(self.PUMP_COLORS)]
+            q_pts = np.array([p["flow_lps"] for p in pts])
+            h_pts = np.array([p["head_m"] for p in pts])
 
-        # Point nominal si disponible
-        flow_nom = self.pump_parser.parsed.get("flow_lps")
-        head_nom = self.pump_parser.parsed.get("pump_head_m")
-        if flow_nom and head_nom:
-            ax.scatter([flow_nom], [head_nom], color="#ef4444", s=120, zorder=6,
-                       edgecolors="white", linewidths=1.5, marker="D",
-                       label=f"Nominal ({flow_nom:.0f} L/s, {head_nom:.1f} m)")
+            deg = min(len(pts) - 1, 3)
+            coeffs = np.polyfit(q_pts, h_pts, deg)
+            poly = np.poly1d(coeffs)
+
+            q_min, q_max = q_pts.min(), q_pts.max()
+            margin = max((q_max - q_min) * 0.15, 5.0)
+            q_smooth = np.linspace(max(0, q_min - margin), q_max + margin, 200)
+            h_smooth = np.maximum(poly(q_smooth), 0)
+            q_global_max = max(q_global_max, q_smooth.max())
+
+            label = pump.parsed.get("label", f"Pompe {idx+1}")
+            is_selected = (idx == self.pump_selected_index)
+            lw = 3.0 if is_selected else 1.8
+            alpha = 1.0 if is_selected else 0.6
+            ax.plot(q_smooth, h_smooth, color=color, lw=lw, alpha=alpha,
+                    label=f"H(Q) {label}", zorder=3 + idx)
+            ax.scatter(q_pts, h_pts, color=color, s=60 if is_selected else 40,
+                       zorder=5 + idx, edgecolors="white", linewidths=0.8)
+
+            # Point nominal
+            flow_nom = pump.parsed.get("flow_lps")
+            head_nom = pump.parsed.get("pump_head_m")
+            if flow_nom and head_nom:
+                ax.scatter([flow_nom], [head_nom], color=color, s=100, zorder=6 + idx,
+                           edgecolors="white", linewidths=1.2, marker="D", alpha=alpha)
+
+        # Mode : si parallèle, dessiner la courbe combinée
+        if self.var_pump_mode.get() == "Parallèle":
+            active = [p for p in self.pump_parsers if len(p.curve_points) >= 2]
+            if len(active) > 1:
+                # Construire la courbe combinée (somme des débits à chaque H)
+                all_h = set()
+                for p in active:
+                    pts = p.curve_points
+                    q_pts = np.array([pp["flow_lps"] for pp in pts])
+                    h_pts = np.array([pp["head_m"] for pp in pts])
+                    deg = min(len(pts) - 1, 3)
+                    coeffs = np.polyfit(q_pts, h_pts, deg)
+                    poly = np.poly1d(coeffs)
+                    h_min, h_max = h_pts.min(), h_pts.max()
+                    all_h.update(np.linspace(max(0, h_min - 10), h_max + 10, 200).tolist())
+                all_h = sorted(all_h)
+                q_combined = []
+                for h_val in all_h:
+                    q_total = 0
+                    for p in active:
+                        pts = p.curve_points
+                        q_pts_arr = np.array([pp["flow_lps"] for pp in pts])
+                        h_pts_arr = np.array([pp["head_m"] for pp in pts])
+                        deg = min(len(pts) - 1, 3)
+                        coeffs = np.polyfit(q_pts_arr, h_pts_arr, deg)
+                        poly = np.poly1d(coeffs)
+                        # Trouver Q pour cette H (inverser la courbe)
+                        roots = np.roots(np.append(coeffs, -h_val))
+                        real_pos = [r.real for r in roots if abs(r.imag) < 1 and r.real > 0]
+                        if real_pos:
+                            q_total += min(real_pos)
+                    q_combined.append(q_total)
+                ax.plot(q_combined, all_h, color="#ffffff", lw=2.5, ls="--",
+                        label=f"Combiné ({len(active)} pompes)", zorder=10,
+                        alpha=0.8)
 
         ax.set_xlabel("Débit Q (L/s)", color=text_c, fontweight="bold", fontsize=10)
         ax.set_ylabel("HMT H (m)", color=text_c, fontweight="bold", fontsize=10)
-        label_pump = self.pump_parser.parsed.get("label", "Pompe")
-        ax.set_title(f"Courbe H(Q) — {label_pump}", color=text_c, fontsize=11, fontweight="bold")
+        n = len(self.pump_parsers)
+        mode_txt = self.var_pump_mode.get()
+        ax.set_title(f"Courbe H(Q) — Batterie ({n} pompe{'s' if n > 1 else ''}, {mode_txt})",
+                     color=text_c, fontsize=11, fontweight="bold")
         ax.tick_params(colors=text_c, labelsize=9)
         ax.grid(True, color=grid_c, ls=":", alpha=0.7)
-        ax.legend(fontsize=8, loc="upper right", framealpha=0.85,
+        ax.legend(fontsize=7, loc="upper right", framealpha=0.85,
                   facecolor=ax_bg, labelcolor=text_c, edgecolor=spine_c)
         for sp in ax.spines.values():
             sp.set_color(spine_c)
 
         fig.tight_layout(pad=1.5)
-
-        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-        import tkinter as tk
 
         self.pump_curve_canvas = FigureCanvasTkAgg(fig, master=self.pump_curve_frame)
         self.pump_curve_canvas.get_tk_widget().grid(
@@ -1479,26 +1611,31 @@ class HammerPyApp(ctk.CTk):
             "",
         ]
 
-        # Section Pompe (si disponible)
-        pump_summary = self.pump_parser.get_summary() if self.pump_parser.parsed else None
-        if pump_summary and pump_summary.get("label") and pump_summary["label"] != "—":
-            pump_file = os.path.basename(self.pump_filepath) if self.pump_filepath else "Non chargé"
-            pump_flow = f"{pump_summary['flow_lps']:.1f} L/s" if pump_summary.get("flow_lps") is not None else "—"
-            pump_head = f"{pump_summary['pump_head_m']:.1f} m" if pump_summary.get("pump_head_m") is not None else "—"
-            npsh_a = f"{pump_summary['npsh_available_m']:.1f} m" if pump_summary.get("npsh_available_m") is not None else "—"
+        # Section Pompe (multi-pompe, si disponible)
+        if self.pump_parsers:
             lines += [
                 "─" * 70,
-                "  1b. DONNÉES POMPE (Rapport Détaillé)",
+                f"  1b. BATTERIE DE POMPES — Mode : {self.var_pump_mode.get()}",
                 "─" * 70,
-                f"  Fichier rapport pompe    : {pump_file}",
-                f"  Pompe                    : {pump_summary['label']} (ID {pump_summary['pump_id']})",
-                f"  Conduite aval            : {pump_summary.get('downstream_pipe', '—')}",
-                f"  Débit nominal (Q)        : {pump_flow}",
-                f"  HMT pompe                : {pump_head}",
-                f"  NPSH disponible          : {npsh_a}",
-                f"  Points courbe H(Q)       : {pump_summary.get('n_curve_points', 0)}",
+                f"  Nombre de pompes : {len(self.pump_parsers)}",
                 "",
             ]
+            for i, pump in enumerate(self.pump_parsers, 1):
+                s = pump.get_summary()
+                pump_file = os.path.basename(pump.filepath) if pump.filepath else "Non chargé"
+                pump_flow = f"{s['flow_lps']:.1f} L/s" if s.get("flow_lps") is not None else "—"
+                pump_head = f"{s['pump_head_m']:.1f} m" if s.get("pump_head_m") is not None else "—"
+                npsh_a = f"{s['npsh_available_m']:.1f} m" if s.get("npsh_available_m") is not None else "—"
+                lines += [
+                    f"  Pompe {i}/{len(self.pump_parsers)} : {s['label']} (ID {s['pump_id']})",
+                    f"    Fichier         : {pump_file}",
+                    f"    Conduite aval   : {s.get('downstream_pipe', '—')}",
+                    f"    Débit nominal   : {pump_flow}",
+                    f"    HMT pompe       : {pump_head}",
+                    f"    NPSH disponible : {npsh_a}",
+                    f"    Points courbe   : {s.get('n_curve_points', 0)}",
+                    "",
+                ]
 
         lines += [
             "─" * 70,
@@ -1671,10 +1808,17 @@ class HammerPyApp(ctk.CTk):
                 "filepath": self.workbook_filepath,
                 "sheets":   workbook_data,
             },
-            "pump": {
-                "filepath":     self.pump_filepath,
-                "parsed":       self.pump_parser.parsed,
-                "curve_points": self.pump_parser.curve_points,
+            "pump_group": {
+                "mode": self.var_pump_mode.get(),
+                "pumps": [
+                    {
+                        "filepath":     p.filepath,
+                        "parsed":       p.parsed,
+                        "curve_points": p.curve_points,
+                    }
+                    for p in self.pump_parsers
+                ],
+                "selectedIndex": self.pump_selected_index,
             },
             "report_text": (self.txt_report.get("1.0", tk.END)
                             if hasattr(self, "txt_report") else ""),
@@ -1866,36 +2010,45 @@ class HammerPyApp(ctk.CTk):
             else:
                 self._reset_workbook()
 
-            # ── Pompe (rapport détaillé, v3.0+) ───────────────────────
-            pump_data = payload.get("pump", {})
-            self.pump_filepath = pump_data.get("filepath", "") or ""
-            if pump_data.get("parsed"):
-                self.pump_parser = PumpReportParser()
-                self.pump_parser.filepath = self.pump_filepath
-                self.pump_parser.parsed = pump_data["parsed"]
-                self.pump_parser.curve_points = pump_data.get("curve_points", [])
+            # ── Pompe (multi-pompe v3.1+ / rétrocompatible v3.0) ─────
+            pump_group = payload.get("pump_group", {})
+            pump_legacy = payload.get("pump", {})  # rétrocompatible v3.0
+            self.pump_parsers = []
+            self.pump_selected_index = -1
 
-                self.lbl_pump_file.configure(
-                    text=os.path.basename(self.pump_filepath)
-                         if self.pump_filepath else "Aucun rapport pompe chargé",
-                    text_color=("gray20", "gray80")
-                              if self.pump_filepath else "gray")
-                self.btn_reset_pump.configure(
-                    state="normal" if self.pump_filepath else "disabled")
+            if pump_group.get("pumps"):
+                # Format v3.1+ : liste de pompes
+                if "mode" in pump_group:
+                    self.var_pump_mode.set(pump_group["mode"])
+                for p_data in pump_group["pumps"]:
+                    if p_data.get("parsed"):
+                        p = PumpReportParser()
+                        p.filepath = p_data.get("filepath", "")
+                        p.parsed = p_data["parsed"]
+                        p.curve_points = p_data.get("curve_points", [])
+                        self.pump_parsers.append(p)
+                self.pump_selected_index = pump_group.get("selectedIndex", 0)
+                if self.pump_parsers:
+                    self.pump_selected_index = min(
+                        self.pump_selected_index, len(self.pump_parsers) - 1)
+            elif pump_legacy.get("parsed"):
+                # Format v3.0 : une seule pompe
+                p = PumpReportParser()
+                p.filepath = pump_legacy.get("filepath", "")
+                p.parsed = pump_legacy["parsed"]
+                p.curve_points = pump_legacy.get("curve_points", [])
+                self.pump_parsers = [p]
+                self.pump_selected_index = 0
 
-                summary = self.pump_parser.get_summary()
-                self._pump_kpi["label"].configure(text=summary["label"])
-                self._pump_kpi["flow"].configure(
-                    text=f"{summary['flow_lps']:.1f} L/s" if summary["flow_lps"] is not None else "— L/s")
-                self._pump_kpi["head"].configure(
-                    text=f"{summary['pump_head_m']:.1f} m" if summary["pump_head_m"] is not None else "— m")
-                npsh_a = summary["npsh_available_m"]
-                self._pump_kpi["npsh_a"].configure(
-                    text=f"{npsh_a:.1f} m" if npsh_a is not None else "— m",
-                    text_color="#33a02c" if npsh_a is not None and npsh_a > 3 else "#e87c2a")
-                self._pump_kpi["n_pts"].configure(text=str(summary["n_curve_points"]))
-            else:
-                self._reset_pump_report()
+            self._refresh_pump_list()
+            self._refresh_pump_kpi()
+            self._update_pump_points_display()
+            self.btn_remove_pump.configure(
+                state="normal" if self.pump_parsers else "disabled")
+            self.btn_add_pump_point.configure(
+                state="normal" if self.pump_parsers else "disabled")
+            self.btn_clear_pump_points.configure(
+                state="normal" if self.pump_parsers else "disabled")
 
             # ── Rapport ──────────────────────────────────────────────
             report_text = payload.get("report_text", "")
@@ -2112,9 +2265,10 @@ class HammerPyApp(ctk.CTk):
             if self.workbook_manager.sheets:
                 wb_summary = self.workbook_manager.get_summary()
 
-            pump_summary = None
-            if self.pump_parser.parsed:
-                pump_summary = self.pump_parser.get_summary()
+            pump_summaries = []
+            for p in self.pump_parsers:
+                if p.parsed:
+                    pump_summaries.append(p.get_summary())
 
             gen = WordReportGenerator()
             doc = gen.generate(
@@ -2130,7 +2284,7 @@ class HammerPyApp(ctk.CTk):
                 volume_threshold_disp = self._volume_threshold_display(),
                 chart_png_path        = chart_path,
                 workbook_summary      = wb_summary,
-                pump_summary          = pump_summary,
+                pump_summaries         = pump_summaries,
             )
             doc.save(filepath)
             messagebox.showinfo("Export réussi",

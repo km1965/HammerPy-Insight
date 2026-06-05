@@ -89,7 +89,7 @@ class WordReportGenerator:
                  volume_unit: str = "L",
                  volume_threshold_disp: float = 200.0,
                  workbook_summary: dict | None = None,
-                 pump_summary: dict | None = None) -> Document:
+                 pump_summaries: list[dict] | None = None) -> Document:
         """
         Génère le contenu complet du rapport Word.
 
@@ -106,7 +106,7 @@ class WordReportGenerator:
             volume_threshold_disp : Seuil HPT affiché dans l'unité choisie.
             chart_png_path : Chemin vers l'image PNG du graphique.
             workbook_summary : Résumé du classeur HAMMER.
-            pump_summary    : Résumé du rapport pompe.
+            pump_summaries   : Liste de résumés des pompes.
 
         Returns:
             Le Document Word peuplé.
@@ -269,70 +269,76 @@ class WordReportGenerator:
 
             self.doc.add_paragraph()
 
-        # ── Données Pompe (rapport détaillé) ─────────────────────────
-        if pump_summary and pump_summary.get("label") and pump_summary["label"] != "—":
+        # ── Données Pompe (multi-pompe) ────────────────────────────────
+        if pump_summaries:
             self._add_separator()
-            self._add_title("2b. Données Pompe (Rapport Détaillé)", level=1)
+            self._add_title("2b. Batterie de Pompes (Rapports Détaillés)", level=1)
 
             p_intro = self.doc.add_paragraph(
-                "Les données ci-dessous proviennent du rapport détaillé pompe exporté depuis "
-                "Bentley HAMMER. Elles caractérisent le point de fonctionnement nominal et la "
-                "courbe H(Q) de la pompe analysée."
+                "Les données ci-dessous proviennent des rapports détaillés pompe exportés depuis "
+                "Bentley HAMMER. Elles caractérisent les points de fonctionnement nominaux et les "
+                "courbes H(Q) des pompes analysées."
             )
             p_intro.runs[0].font.color.rgb = RGBColor(0x44, 0x44, 0x44)
             self.doc.add_paragraph()
 
-            pump_rows = [
-                ("Identifiant",     str(pump_summary.get("pump_id", "—"))),
-                ("Label",           str(pump_summary.get("label", "—"))),
-                ("Conduite aval",   str(pump_summary.get("downstream_pipe", "—"))),
-                ("Débit nominal (Q)",
-                 f"{pump_summary['flow_lps']:.1f} L/s" if pump_summary.get("flow_lps") is not None else "—"),
-                ("HMT pompe",
-                 f"{pump_summary['pump_head_m']:.1f} m" if pump_summary.get("pump_head_m") is not None else "—"),
-                ("Pression aspiration",
-                 f"{pump_summary['pressure_suction_bar']:.2f} bar" if pump_summary.get("pressure_suction_bar") is not None else "—"),
-                ("Pression refoulement",
-                 f"{pump_summary['pressure_discharge_bar']:.2f} bar" if pump_summary.get("pressure_discharge_bar") is not None else "—"),
-                ("NPSH disponible",
-                 f"{pump_summary['npsh_available_m']:.1f} m" if pump_summary.get("npsh_available_m") is not None else "—"),
-                ("NPSH requis",
-                 f"{pump_summary['npsh_required_m']:.1f} m" if pump_summary.get("npsh_required_m") is not None else "N/D"),
-                ("Points courbe H(Q)",
-                 str(pump_summary.get("n_curve_points", 0))),
-            ]
+            for idx, ps in enumerate(pump_summaries, 1):
+                if not ps or not ps.get("label") or ps["label"] == "—":
+                    continue
 
-            tbl = self.doc.add_table(rows=len(pump_rows) + 1, cols=2)
-            tbl.style = "Table Grid"
-            tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+                self._add_title(f"Pompe {idx}/{len(pump_summaries)} — {ps.get('label', '—')}", level=2)
 
-            hdrs = ["Paramètre", "Valeur"]
-            for j, h in enumerate(hdrs):
-                run = tbl.rows[0].cells[j].paragraphs[0].add_run(h)
-                run.bold = True
-                run.font.color.rgb = self._rgb(self.COULEUR_TITRE_HEX)
+                pump_rows = [
+                    ("Identifiant",     str(ps.get("pump_id", "—"))),
+                    ("Label",           str(ps.get("label", "—"))),
+                    ("Conduite aval",   str(ps.get("downstream_pipe", "—"))),
+                    ("Débit nominal (Q)",
+                     f"{ps['flow_lps']:.1f} L/s" if ps.get("flow_lps") is not None else "—"),
+                    ("HMT pompe",
+                     f"{ps['pump_head_m']:.1f} m" if ps.get("pump_head_m") is not None else "—"),
+                    ("Pression aspiration",
+                     f"{ps['pressure_suction_bar']:.2f} bar" if ps.get("pressure_suction_bar") is not None else "—"),
+                    ("Pression refoulement",
+                     f"{ps['pressure_discharge_bar']:.2f} bar" if ps.get("pressure_discharge_bar") is not None else "—"),
+                    ("NPSH disponible",
+                     f"{ps['npsh_available_m']:.1f} m" if ps.get("npsh_available_m") is not None else "—"),
+                    ("NPSH requis",
+                     f"{ps['npsh_required_m']:.1f} m" if ps.get("npsh_required_m") is not None else "N/D"),
+                    ("Points courbe H(Q)",
+                     str(ps.get("n_curve_points", 0))),
+                ]
 
-            for i, (label, val) in enumerate(pump_rows):
-                tbl.rows[i + 1].cells[0].paragraphs[0].add_run(label)
-                tbl.rows[i + 1].cells[1].paragraphs[0].add_run(val)
+                tbl = self.doc.add_table(rows=len(pump_rows) + 1, cols=2)
+                tbl.style = "Table Grid"
+                tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
 
-            self.doc.add_paragraph()
+                hdrs = ["Paramètre", "Valeur"]
+                for j, h in enumerate(hdrs):
+                    run = tbl.rows[0].cells[j].paragraphs[0].add_run(h)
+                    run.bold = True
+                    run.font.color.rgb = self._rgb(self.COULEUR_TITRE_HEX)
 
-            npsh_a = pump_summary.get("npsh_available_m")
-            if npsh_a is not None:
-                if npsh_a < 3:
-                    self._add_alert(
-                        f"NPSH disponible faible ({npsh_a:.1f} m). "
-                        "Risque de cavitation. Vérifier l'altitude d'aspiration.",
-                        "warning"
-                    )
-                else:
-                    self._add_alert(
-                        f"NPSH disponible ({npsh_a:.1f} m) suffisant.",
-                        "ok"
-                    )
+                for i, (label, val) in enumerate(pump_rows):
+                    tbl.rows[i + 1].cells[0].paragraphs[0].add_run(label)
+                    tbl.rows[i + 1].cells[1].paragraphs[0].add_run(val)
 
-            self.doc.add_paragraph()
+                self.doc.add_paragraph()
+
+                npsh_a = ps.get("npsh_available_m")
+                if npsh_a is not None:
+                    if npsh_a < 3:
+                        self._add_alert(
+                            f"NPSH disponible faible ({npsh_a:.1f} m) — Pompe {ps.get('label', '—')}. "
+                            "Risque de cavitation. Vérifier l'altitude d'aspiration.",
+                            "warning"
+                        )
+                    else:
+                        self._add_alert(
+                            f"NPSH disponible ({npsh_a:.1f} m) suffisant — Pompe {ps.get('label', '—')}.",
+                            "ok"
+                        )
+
+                self.doc.add_paragraph()
 
         # ── Analyse Transitoire ────────────────────────────────────────
         self._add_separator()
