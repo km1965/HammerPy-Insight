@@ -89,7 +89,8 @@ class WordReportGenerator:
                  volume_unit: str = "L",
                  volume_threshold_disp: float = 200.0,
                  workbook_summary: dict | None = None,
-                 pump_summaries: list[dict] | None = None) -> Document:
+                 pump_summaries: list[dict] | None = None,
+                 air_valve_data: dict | None = None) -> Document:
         """
         Génère le contenu complet du rapport Word.
 
@@ -107,6 +108,7 @@ class WordReportGenerator:
             chart_png_path : Chemin vers l'image PNG du graphique.
             workbook_summary : Résumé du classeur HAMMER.
             pump_summaries   : Liste de résumés des pompes.
+            air_valve_data   : Données ventaises/vidanges (profile, ventaises, vidanges).
 
         Returns:
             Le Document Word peuplé.
@@ -492,6 +494,85 @@ class WordReportGenerator:
             last_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
         self.doc.add_paragraph()
+
+        # ── Profil en Long — Ventaises & Vidanges (Phase 3) ──────────
+        if air_valve_data:
+            vents = air_valve_data.get("ventouses", [])
+            drains = air_valve_data.get("vidanges", [])
+            profile = air_valve_data.get("profile", [])
+            pipe_dn = air_valve_data.get("pipe_dn_mm", 250)
+
+            if vents or drains:
+                self._add_separator()
+                self._add_title("4. Profil en Long — Ventaises & Vidanges", level=1)
+
+                p_intro = self.doc.add_paragraph(
+                    f"Le profil en long de la conduite (DN {pipe_dn:.0f} mm) a été analysé "
+                    f"pour localiser et dimensionner les ventaises et vidanges."
+                )
+                p_intro.runs[0].font.color.rgb = RGBColor(0x44, 0x44, 0x44)
+                self.doc.add_paragraph()
+
+                if vents:
+                    self._add_title(f"Ventaises recommandées ({len(vents)})", level=2)
+
+                    tbl = self.doc.add_table(rows=len(vents) + 1, cols=4)
+                    tbl.style = "Table Grid"
+                    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+                    hdrs = ["PK (m)", "Côte (m)", "Type", "DN (mm)"]
+                    for j, h in enumerate(hdrs):
+                        run = tbl.rows[0].cells[j].paragraphs[0].add_run(h)
+                        run.bold = True
+                        run.font.color.rgb = self._rgb("#2d6a4f")
+
+                    for i, v in enumerate(vents):
+                        tbl.rows[i + 1].cells[0].paragraphs[0].add_run(
+                            f"{v['pk_m']:.1f}")
+                        tbl.rows[i + 1].cells[1].paragraphs[0].add_run(
+                            f"{v['z_m']:.2f}")
+                        tbl.rows[i + 1].cells[2].paragraphs[0].add_run(
+                            v.get("type", "—"))
+                        tbl.rows[i + 1].cells[3].paragraphs[0].add_run(
+                            str(v.get("dn_mm", "—")))
+
+                    self.doc.add_paragraph()
+
+                if drains:
+                    self._add_title(f"Vidanges recommandées ({len(drains)})", level=2)
+
+                    tbl = self.doc.add_table(rows=len(drains) + 1, cols=6)
+                    tbl.style = "Table Grid"
+                    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+                    hdrs = ["PK (m)", "Côte (m)", "Type", "DN",
+                            "Dist. G (m)", "Dist. D (m)"]
+                    for j, h in enumerate(hdrs):
+                        run = tbl.rows[0].cells[j].paragraphs[0].add_run(h)
+                        run.bold = True
+                        run.font.color.rgb = self._rgb("#ef476f")
+
+                    for i, d in enumerate(drains):
+                        tbl.rows[i + 1].cells[0].paragraphs[0].add_run(
+                            f"{d['pk_m']:.1f}")
+                        tbl.rows[i + 1].cells[1].paragraphs[0].add_run(
+                            f"{d['z_m']:.2f}")
+                        tbl.rows[i + 1].cells[2].paragraphs[0].add_run(
+                            d.get("type", "—"))
+                        tbl.rows[i + 1].cells[3].paragraphs[0].add_run(
+                            str(d.get("dn_mm", "—")))
+                        tbl.rows[i + 1].cells[4].paragraphs[0].add_run(
+                            f"{d.get('distance_to_left_m', 0):.1f}")
+                        tbl.rows[i + 1].cells[5].paragraphs[0].add_run(
+                            f"{d.get('distance_to_right_m', 0):.1f}")
+
+                    self.doc.add_paragraph()
+
+                if not vents and not drains:
+                    self._add_alert(
+                        "Aucune ventaise ou vidange recommandée pour ce profil.",
+                        "warning"
+                    )
 
         # ── Pied de page ───────────────────────────────────────────────
         self._add_separator()

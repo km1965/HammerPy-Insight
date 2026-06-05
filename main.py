@@ -1954,6 +1954,42 @@ class HammerPyApp(ctk.CTk):
         if errors:
             lines += ["", "─" * 70, "  ERREURS DE CHARGEMENT", "─" * 70] + errors
 
+        # ── Section Ventaises & Vidanges (Phase 3) ─────────────────
+        vents = self.air_valve_sizer.ventouses
+        drains = self.air_valve_sizer.vidanges
+        if vents or drains:
+            lines += [
+                "", "─" * 70,
+                "  4. PROFIL EN LONG — VENTaises & VIDANGES",
+                "─" * 70,
+                f"  DN conduite : {self.var_pipe_dn.get()} mm",
+                f"  Points profil : {len(self.air_valve_sizer.profile)}",
+                "",
+            ]
+            if vents:
+                lines.append(f"  Ventaises recommandées : {len(vents)}")
+                lines.append(f"  {'PK (m)':>8}  {'Côte (m)':>9}  {'Type':<35}  {'DN (mm)':>7}")
+                lines.append(f"  {'─'*8}  {'─'*9}  {'─'*35}  {'─'*7}")
+                for v in vents:
+                    lines.append(
+                        f"  {v['pk_m']:>8.1f}  {v['z_m']:>9.2f}  "
+                        f"{v['type']:<35}  {v['dn_mm']:>7}")
+                lines.append("")
+            if drains:
+                lines.append(f"  Vidanges recommandées : {len(drains)}")
+                lines.append(
+                    f"  {'PK (m)':>8}  {'Côte (m)':>9}  {'Type':<30}  "
+                    f"{'DN':>3}  {'Dist.G':>7}  {'Dist.D':>7}")
+                lines.append(
+                    f"  {'─'*8}  {'─'*9}  {'─'*30}  {'─'*3}  {'─'*7}  {'─'*7}")
+                for d in drains:
+                    lines.append(
+                        f"  {d['pk_m']:>8.1f}  {d['z_m']:>9.2f}  "
+                        f"{d['type']:<30}  {d['dn_mm']:>3}  "
+                        f"{d['distance_to_left_m']:>7.1f}  "
+                        f"{d['distance_to_right_m']:>7.1f}")
+                lines.append("")
+
         lines += ["", "═" * 70,
                    "  Document généré par HammerPy Insight v3.0",
                   "═" * 70]
@@ -2083,6 +2119,15 @@ class HammerPyApp(ctk.CTk):
             },
             "report_text": (self.txt_report.get("1.0", tk.END)
                             if hasattr(self, "txt_report") else ""),
+
+            "air_valves": {
+                "filepath":   self.valve_profile_filepath,
+                "pipe_dn_mm": float(self.var_pipe_dn.get())
+                              if self.var_pipe_dn.get() else 250.0,
+                "profile":    self.air_valve_sizer.profile,
+                "ventouses":  self.air_valve_sizer.ventouses,
+                "vidanges":   self.air_valve_sizer.vidanges,
+            },
         }
 
     # ------------------------------------------------------------------
@@ -2310,6 +2355,23 @@ class HammerPyApp(ctk.CTk):
                 state="normal" if self.pump_parsers else "disabled")
             self.btn_clear_pump_points.configure(
                 state="normal" if self.pump_parsers else "disabled")
+
+            # ── Ventouses & Vidanges (Phase 3, rétrocompatible v3.0) ──
+            air_data = payload.get("air_valves", {})
+            if air_data:
+                self.valve_profile_filepath = air_data.get("filepath", "") or ""
+                dn = air_data.get("pipe_dn_mm", 250.0)
+                self.var_pipe_dn.set(str(int(dn)) if dn == int(dn) else str(dn))
+                self.air_valve_sizer.pipe_dn_mm = float(dn)
+                self.air_valve_sizer.profile = air_data.get("profile", [])
+                self.air_valve_sizer.ventouses = air_data.get("ventouses", [])
+                self.air_valve_sizer.vidanges = air_data.get("vidanges", [])
+                self._update_valve_chart()
+                self._refresh_valve_textboxes()
+                n = len(self.air_valve_sizer.profile)
+                self.lbl_valve_status.configure(
+                    text=f"Projet chargé — {n} points" if n else "Aucun profil",
+                    text_color="#2d6a4f" if n else "gray")
 
             # ── Rapport ──────────────────────────────────────────────
             report_text = payload.get("report_text", "")
@@ -2546,6 +2608,12 @@ class HammerPyApp(ctk.CTk):
                 chart_png_path        = chart_path,
                 workbook_summary      = wb_summary,
                 pump_summaries         = pump_summaries,
+                air_valve_data        = {
+                    "profile":   self.air_valve_sizer.profile,
+                    "ventouses": self.air_valve_sizer.ventouses,
+                    "vidanges":  self.air_valve_sizer.vidanges,
+                    "pipe_dn_mm": self.air_valve_sizer.pipe_dn_mm,
+                } if self.air_valve_sizer.profile else None,
             )
             doc.save(filepath)
             messagebox.showinfo("Export réussi",
