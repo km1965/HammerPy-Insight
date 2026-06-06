@@ -7,8 +7,19 @@ le pré-dimensionnement des ventouses et la localisation des vidanges.
 """
 
 import csv
+import hashlib
 import math
 import os
+
+
+def _file_hash(filepath: str) -> str:
+    """Calcule un hash court (16 caractères) d'un fichier pour le mapping."""
+    try:
+        with open(filepath, 'rb') as f:
+            content = f.read(8192)
+        return hashlib.md5(content).hexdigest()[:16]
+    except Exception:
+        return ""
 
 
 # =====================================================================
@@ -54,6 +65,14 @@ class AirValveSizing:
         self.low_points: list[dict] = []    # Points bas (vidanges)
         self.ventouses: list[dict] = []     # Recommandations ventouses
         self.vidanges: list[dict] = []      # Recommandations vidanges
+        self._column_mapper = None          # Optionnel — défini via set_column_mapper
+
+    def set_column_mapper(self, mapper):
+        """
+        Attache un ColumnMapper pour le mapping interactif des colonnes
+        inconnues. Si non attaché, fallback sur positions ou erreur.
+        """
+        self._column_mapper = mapper
 
     # ------------------------------------------------------------------
     # Import profil en long
@@ -63,6 +82,12 @@ class AirValveSizing:
         """
         Charge un profil en long depuis un CSV (3 colonnes : pk, z, [pente]).
         Retourne True si OK, False sinon.
+
+        Modes supportés :
+        - Avec en-tête (pk, z) ou variantes : utilise les noms de colonnes
+        - Sans en-tête (juste des nombres) : utilise les positions [0]=PK, [1]=Z
+        - Mapping interactif : si en-tête présent mais colonnes non reconnues,
+          appelle column_mapper (si fourni) pour demander à l'utilisateur
         """
         try:
             # Tenter plusieurs encodages (UTF-16 LE pour exports Excel Bentley)
@@ -88,21 +113,34 @@ class AirValveSizing:
 
             # Détecter si la première ligne est un en-tête
             start = 0
+            has_header = False
             if rows and rows[0]:
                 try:
                     float(str(rows[0][0]).replace(',', '.').replace('\xa0', ''))
                 except ValueError:
+                    has_header = True
                     start = 1
+
+            # Si en-tête présent, essayer de mapper les colonnes par nom
+            pk_idx, z_idx, slope_idx = 0, 1, 2
+            if has_header and rows[0]:
+                header = [str(c).strip() for c in rows[0]]
+                pk_idx, z_idx, slope_idx = self._resolve_profile_columns(
+                    header, filepath
+                )
+                # Si -1 = non trouvé et ignoré, fallback sur positions
+                if pk_idx < 0 or z_idx < 0:
+                    pk_idx, z_idx, slope_idx = 0, 1, 2
 
             self.profile = []
             for row in rows[start:]:
                 if len(row) < 2:
                     continue
-                pk = self._parse_val(row[0])
-                z = self._parse_val(row[1])
+                pk = self._parse_val(row[pk_idx]) if pk_idx < len(row) else None
+                z = self._parse_val(row[z_idx]) if z_idx < len(row) else None
                 if pk is None or z is None:
                     continue
-                pente = self._parse_val(row[2]) if len(row) > 2 else None
+                pente = self._parse_val(row[slope_idx]) if 0 <= slope_idx < len(row) else None
                 self.profile.append({"pk_m": pk, "z_m": z, "pente_pct": pente})
 
             if len(self.profile) < 2:
@@ -115,6 +153,70 @@ class AirValveSizing:
 
         except Exception:
             return False
+
+    def _resolve_profile_columns(
+        self,
+        header: list[str],
+        filepath: str,
+    ) -> tuple[int, int, int]:
+        """
+        Résout les indices de colonnes PK, Z, Pente à partir des noms.
+        Utilise le ColumnMapper si fourni en attribut (_column_mapper).
+
+        Returns:
+            (pk_idx, z_idx, slope_idx) ou (-1, -1, -1) si ignoré
+        """
+        # Synonymes connus
+        PK_SYNONYMS = ["pk", "distance", "abscisse", "absc", "point kilométrique", "linear", "station"]
+        Z_SYNONYMS = ["z", "cote", "côte", "altitude", "elevation", "élévation", "tn", "terrain", "level"]
+        SLOPE_SYNONYMS = ["pente", "slope", "gradient"]
+
+        def find_idx(synonyms: list[str]) -> int:
+            for i, col in enumerate(header):
+                col_lower = col.lower()
+                if any(syn in col_lower for syn in synonyms):
+                    return i
+            return -1
+
+        pk_idx = find_idx(PK_SYNONYMS)
+        z_idx = find_idx(Z_SYNONYMS)
+        slope_idx = find_idx(SLOPE_SYNONYMS)
+
+        # Si PK et Z sont trouvés, on a tout ce qu'il faut
+        if pk_idx >= 0 and z_idx >= 0:
+            return pk_idx, z_idx, slope_idx
+
+        # Sinon, demander via ColumnMapper (si attaché)
+        mapper = getattr(self, "_column_mapper", None)
+        if mapper is None:
+            # Pas de mapper = fallback sur positions [0]=PK, [1]=Z
+            return 0, 1, 2
+
+        # Demander pour PK
+        if pk_idx < 0:
+            chosen = mapper.request_mapping(
+                unknown_col="PK (m)",
+                available_cols=header,
+                file_type="profile_csv",
+                file_hash=_file_hash(filepath),
+            )
+            if chosen is None:
+                return -1, -1, -1  # User a annulé
+            pk_idx = header.index(chosen)
+
+        # Demander pour Z
+        if z_idx < 0:
+            chosen = mapper.request_mapping(
+                unknown_col="Z (m)",
+                available_cols=header,
+                file_type="profile_csv",
+                file_hash=_file_hash(filepath),
+            )
+            if chosen is None:
+                return -1, -1, -1
+            z_idx = header.index(chosen)
+
+        return pk_idx, z_idx, slope_idx
 
     def load_profile_manual(self, points: list[tuple[float, float]]):
         """

@@ -105,6 +105,12 @@ Permettre aux ingénieurs hydrauliques de :
     - Calque `Profil en long` (X = PK, Y = altitude)
     - Auto-détection accents/casse (`Tracé en plan`, `Profil en long`, `Plan`, `Profile`…)
   - **Profil exemple** démo intégré
+- **Encodages supportés** : UTF-8, UTF-8-sig, UTF-16 LE, UTF-16 BE, CP1252, Latin-1
+- **Mapping interactif des colonnes** (Phase 3.6) :
+  - Si une colonne attendue (PK, Z) n'est pas trouvée dans le CSV,
+    une boîte de dialogue modale demande à l'utilisateur quelle colonne utiliser
+  - **Auto-apprentissage** : les mappings sont mémorisés (jamais redemandés)
+  - Persistance dans `.hpi` (rétrocompatible v3.0)
 - **Saisie du DN conduite** (mm)
 - **Calcul automatique** des ventaises et vidanges :
   - Détection des points hauts/bas du profil
@@ -246,6 +252,16 @@ main.py                          # GUI + entry point
 │   ├── load_dxf_profile()       # Extrait polyligne calque "Profil en long"
 │   └── list_dxf_layers()        # Liste calques LWPOLYLINE disponibles
 │
+├── column_mapper.py               # Mapping interactif colonnes CSV/XLSX
+│   ├── ColumnMapper             # Auto-apprentissage + UI callback
+│   ├── request_mapping()        # Demande utilisateur via modale
+│   ├── auto_apply()             # Renommage auto de plusieurs colonnes
+│   ├── learn_mapping()          # Apprentissage explicite
+│   └── serialize()/deserialize() # Persistance dans .hpi
+│
+├── column_mapper_dialog.py        # Boîte de dialogue modale (CTk)
+│   └── ask_column_mapping()     # Dropdown + OK/Skip/Cancel
+│
 └── air_valve_sizing.py          # Dimensionnement ventaises/vidanges
     ├── AirValveSizing           # Calcul points hauts/bas + sizing
     ├── load_profile_csv()       # Import profil en long (CSV libre)
@@ -275,8 +291,9 @@ python -m pytest test_workbook_parser.py -v
 - 4 tests rétrocompatibilité : CSV HPT + station lisibles
 - 12 tests `PumpReportParser` : chargement RTF réel, strip RTF, courbe points, interpolation, résumé
 - 7 tests `AirValveSizing` : profil, points hauts/bas, sizing ventaises/vidanges, DN, export CSV
-- 14 tests DXF & CSV Bentley : normalisation calques, extraction LWPOLYLINE, parsing FlexTable, distance cumulée, pentes, détection points hauts/bas
+- 14 tests DXF & CSV Bentley : normalisation calques, extraction LWPOLYLINE, parsing FlexTable, distance cumulée, pentes, détection points hauts/bas, encodages UTF-16
+- 24 tests ColumnMapper : auto-apprentissage, cache, UI callback, skip/cancel, sérialisation, hash fichier
 
 ---
 
-*Document mis à jour — HammerPy Insight v3.0 Phase 3 + Imports multi-format — Juin 2026*
+*Document mis à jour — HammerPy Insight v3.0 Phase 3 + Phase 3.5 Imports multi-format + Phase 3.6 Mapping interactif — Juin 2026*

@@ -347,3 +347,76 @@ class TestBentleyCsv:
             assert avs.profile[0]["z_m"] == 109.11
         finally:
             os.unlink(f.name)
+
+    def test_load_profile_csv_with_unknown_columns(self):
+        """CSV Libre avec colonnes renommées : mapping demandé."""
+        content = (
+            'Distance;Cote;Commentaire\n'
+            '0;100,5;point 1\n'
+            '100;102,0;point 2\n'
+            '200;98,5;point 3\n'
+        )
+        f = tempfile.NamedTemporaryFile(
+            suffix=".csv", delete=False, mode='w', encoding='utf-8-sig', newline=''
+        )
+        f.write(content)
+        f.close()
+        try:
+            avs = AirValveSizing(pipe_dn_mm=250.0)
+            # CSV auto-détecte "Distance" (synonyme de PK) et "Cote" (synonyme de Z)
+            assert avs.load_profile_csv(f.name) is True
+            assert len(avs.profile) == 3
+            assert avs.profile[0]["pk_m"] == 0.0
+            assert avs.profile[0]["z_m"] == 100.5
+        finally:
+            os.unlink(f.name)
+
+    def test_load_profile_csv_with_column_mapper(self):
+        """CSV avec colonnes non-standard : ColumnMapper intervient."""
+        from column_mapper import ColumnMapper, reset_mapper
+        reset_mapper()
+        content = (
+            'AbsCurviligne;HauteurTN;Remarque\n'
+            '0;100,5;point 1\n'
+            '100;102,0;point 2\n'
+            '200;98,5;point 3\n'
+        )
+        f = tempfile.NamedTemporaryFile(
+            suffix=".csv", delete=False, mode='w', encoding='utf-8-sig', newline=''
+        )
+        f.write(content)
+        f.close()
+        try:
+            avs = AirValveSizing(pipe_dn_mm=250.0)
+            # Configurer un mapper qui retourne "AbsCurviligne" pour PK et "HauteurTN" pour Z
+            mapper = ColumnMapper()
+            mapper.set_ui_callback(
+                lambda **kw: "AbsCurviligne" if kw["unknown_col"] == "PK (m)" else "HauteurTN"
+            )
+            avs.set_column_mapper(mapper)
+            assert avs.load_profile_csv(f.name) is True
+            assert len(avs.profile) == 3
+            assert avs.profile[0]["pk_m"] == 0.0
+            assert avs.profile[0]["z_m"] == 100.5
+        finally:
+            os.unlink(f.name)
+
+    def test_load_profile_csv_no_header_positional(self):
+        """CSV sans en-tête : utilise les positions [0]=PK, [1]=Z."""
+        # Utiliser virgule décimale anglaise pour éviter conflit avec sniff
+        content = (
+            '0;100.5\n'
+            '100;102.0\n'
+            '200;98.5\n'
+        )
+        f = tempfile.NamedTemporaryFile(
+            suffix=".csv", delete=False, mode='w', encoding='utf-8-sig', newline=''
+        )
+        f.write(content)
+        f.close()
+        try:
+            avs = AirValveSizing(pipe_dn_mm=250.0)
+            assert avs.load_profile_csv(f.name) is True
+            assert len(avs.profile) == 3
+        finally:
+            os.unlink(f.name)

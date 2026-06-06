@@ -44,6 +44,8 @@ from pump_parser import PumpReportParser
 from report_generator import WordReportGenerator, DOCX_AVAILABLE
 from air_valve_sizing import AirValveSizing
 from dxf_profile_importer import load_dxf_both, HAS_EZDXF
+from column_mapper import get_mapper as _get_column_mapper
+from column_mapper_dialog import ask_column_mapping as _ask_column_mapping
 
 # ── Alias rétrocompatibilité ──────────────────────────────────────
 from utils import parse_number as _parse_number
@@ -87,6 +89,11 @@ class HammerPyApp(ctk.CTk):
         self.air_valve_sizer = AirValveSizing()
         self.var_pipe_dn = tk.StringVar(value="250")
         self.valve_profile_filepath: str = ""
+
+        # ── Column Mapper (auto-apprentissage mapping colonnes) ─────
+        self._column_mapper = _get_column_mapper()
+        self._column_mapper.set_ui_callback(self._on_column_mapping_request)
+        self.air_valve_sizer.set_column_mapper(self._column_mapper)
 
         # ── État de l'application ───────────────────────────────────────
         self.station_filepath: str = ""
@@ -951,6 +958,29 @@ class HammerPyApp(ctk.CTk):
                                "Impossible de charger le profil Bentley.\n"
                                "Format attendu : CSV FlexTable avec colonnes\n"
                                "Label, X (m), Y (m), Elevation (m).")
+
+    def _on_column_mapping_request(
+        self,
+        unknown_col: str,
+        available_cols: list[str],
+        file_type: str,
+        file_hash: str = "",
+    ):
+        """
+        Callback UI appelé par le ColumnMapper quand une colonne n'est pas reconnue.
+        Affiche une boîte de dialogue modale et retourne la colonne choisie.
+        """
+        try:
+            return _ask_column_mapping(
+                self,
+                unknown_col=unknown_col,
+                available_cols=available_cols,
+                file_type=file_type,
+                file_hash=file_hash,
+            )
+        except Exception as exc:
+            print(f"[ColumnMapper] Erreur UI : {exc}")
+            return None
 
     def _import_dxf_profile(self):
         """Importe un profil en long et tracé en plan depuis un DXF.
@@ -2277,6 +2307,8 @@ class HammerPyApp(ctk.CTk):
                 "dxf_plan_points": self._dxf_plan_points,
                 "dxf_plan_layer":  self._dxf_plan_layer,
             },
+
+            "column_mappings": self._column_mapper.serialize(),
         }
 
     # ------------------------------------------------------------------
@@ -2525,6 +2557,11 @@ class HammerPyApp(ctk.CTk):
                 self.lbl_valve_status.configure(
                     text=f"Projet chargé — {n} points profil{plan_info}" if n else "Aucun profil",
                     text_color="#2d6a4f" if n else "gray")
+
+            # ── Column Mappings (Phase 3.5+, rétrocompatible v3.0) ───
+            mappings_data = payload.get("column_mappings", {})
+            if mappings_data:
+                self._column_mapper.deserialize(mappings_data)
 
             # ── Rapport ──────────────────────────────────────────────
             report_text = payload.get("report_text", "")
