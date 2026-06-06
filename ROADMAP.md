@@ -7,6 +7,7 @@
 > **Phase 3.5** : 🟢 Terminée — Imports multi-format (CSV Bentley FlexTable + DXF AutoCAD avec calques Plan/Profil) (juin 2026)
 > **Phase 3.6** : 🟢 Terminée — Mapping interactif colonnes avec auto-apprentissage (juin 2026)
 > **Phase 3.7** : 🟢 Terminée — Rapport Word (.docx) dédié Ventouses/Vidanges avec profil en long (juin 2026)
+> **Phase 4** : 🟢 Terminée — SystemDiagnostics (16 vérifications A-E) + onglet UI + section rapport Word + sérialisation (juin 2026)
 > **Compatibilité ascendante** : `.hpi` v2.x → v3.0 (migration automatique) ✅
 
 ---
@@ -37,21 +38,15 @@ HammerPy Insight v3 sait :
 - ✅ **Imports multi-format (Phase 3.5)** : CSV Libre, CSV Bentley FlexTable (X,Y,Z → distance cumulée), DXF AutoCAD (calques Tracé en plan + Profil en long)
 - ✅ **Mapping interactif colonnes (Phase 3.6)** : boîte de dialogue modale, auto-apprentissage, persistance .hpi
 - ✅ **Rapport Word dédié Ventouses/Vidanges (Phase 3.7)** : image profil en long + tableaux + méthodologie
-- ✅ **130 tests unitaires** validés
+- ✅ **SystemDiagnostics (Phase 4)** : 16 vérifications croisées en 5 catégories (A-E) + onglet UI triable + KPI strip + section Word + sérialisation .hpi
+- ✅ **211 tests unitaires** validés (81 nouveaux pour Phase 4)
 
-### 1.2 Phase 4 — Module Système (prévue)
-- ❌ **SystemDiagnostics** : vérifications croisées (pompe ↔ réseau ↔ HPT ↔ vidanges)
-- ❌ **Indicateurs d'adéquation** : ✔ cohérent / ⚠ à vérifier / ✘ non conforme
-- ❌ **Section « Système complet »** dans le rapport Word
-
-| Objectif | Bénéfice utilisateur |
-|---|---|
-| **Pré-dimensionner les ventouses** le long du profil en long | Recommandations automatiques (DN, type, position) |
-| **Pré-dimensionner les vidanges** aux points bas | Emplacement optimal entre deux ventouses, DN recommandé |
-| Calculer le **NPSH disponible** vs NPSH requis (approfondi) | Détection précoce des risques de cavitation |
-| **Modéliser le profil en long** de la conduite | Visualisation des pentes, points critiques |
-| Vérifier l'**adéquation pompe × réseau** | Superposition graphique HMT pompe vs pertes de charge réseau |
-| Étendre la **note technique Word** avec ces analyses | Dossier d'étude complet en un clic |
+### 1.2 Phase 4 — Module Système (terminée ✅)
+- ✅ **SystemDiagnostics** : 16 vérifications croisées (pompe ↔ réseau ↔ HPT ↔ vidanges)
+- ✅ **Indicateurs d'adéquation** : ✔ cohérent / ⚠ à vérifier / ✘ non conforme / — N/A
+- ✅ **Section « 6. Diagnostic Système »** dans le rapport Word
+- ✅ **Onglet UI 5 « Système & Diagnostics »** : bandeau KPI (4 compteurs) + tableau plat triable
+- ✅ **Sérialisation** : clé `system_diagnostics` dans `.hpi` (rétrocompatible v3.0)
 
 ---
 
@@ -377,7 +372,7 @@ HammerPy Insight v3 sait :
 | **P3.5 — Imports multi-format** | CSV Bentley FlexTable + DXF (ezdxf) + 21 tests + UI 2 graphiques | ✅ Terminé |
 | **P3.6 — Mapping interactif colonnes** | ColumnMapper + UI modale + auto-apprentissage + 28 tests + .hpi | ✅ Terminé |
 | **P3.7 — Rapport Ventouses Word** | ventouses_report.py + bouton UI + 14 tests + image profil | ✅ Terminé |
-| **P4 — Module Système** | SystemDiagnostics + Rapport Word complet | 📋 À démarrer |
+| **P4 — Module Système** | SystemDiagnostics 16 checks + onglet UI + section Word + 81 tests | ✅ Terminé |
 | **P5 — Documentation** | README, CHANGELOG, guide utilisateur v3.0 | 📋 |
 
 ---
@@ -395,6 +390,7 @@ HammerPy Insight v3 sait :
 - 14 tests DXF & CSV Bentley : normalisation calques, LWPOLYLINE, FlexTable, distance cumulée, pentes, détection points hauts/bas, encodages UTF-16 (Phase 3.5)
 - 24 tests ColumnMapper : auto-apprentissage, cache, UI callback, skip/cancel, sérialisation, hash fichier (Phase 3.6)
 - 14 tests ventouses_report : génération, sauvegarde, intégration image PNG, contenu, stats (Phase 3.7)
+- 81 tests SystemDiagnostics : constantes, défauts, 16 checks A-E (cas OK/WARN/FAIL/NA), intégration, sérialisation roundtrip (Phase 4)
 
 ### 6.2 Tests Phase 3 (prévu)
 - `AirValveSizing` : détection points hauts, dimensionnement ventouses (8+ cas)
@@ -430,7 +426,7 @@ HammerPy Insight v3 sait :
 
 | Métrique | Cible | Actuel |
 |---|---|---|
-| Couverture de tests unitaires | > 85% | 65 tests ✅ |
+| Couverture de tests unitaires | > 85% | 211 tests ✅ |
 | Bugs de régression | < 5 | 0 ✅ |
 | Temps de chargement `.hpi` v3.0 (< 5 MB) | < 1 s | ✅ |
 | Temps d'export Word complet (< 15 pages) | < 5 s | ✅ |
@@ -449,8 +445,9 @@ HammerPy Insight/
 ├── pump_parser.py                   # PumpReportParser — rapport pompe RTF
 ├── report_generator.py              # WordReportGenerator — rapport Word
 ├── air_valve_sizing.py              # AirValveSizing — ventaises/vidanges
+├── system_diagnostics.py            # SystemDiagnostics — 16 checks A-E (Phase 4)
 ├── hammerpy_icon.ico                # Icône multi-tailles (370 Ko)
-├── test_workbook_parser.py          # 65 tests unitaires
+├── test_workbook_parser.py          # 211 tests unitaires (Phase 4)
 ├── requirements.txt                 # Dépendances
 ├── README.md                        # Documentation v3.0 Phase 3
 ├── ROADMAP.md                       # Ce document
@@ -478,4 +475,5 @@ HammerPy Insight/
 *Document rédigé le 4 juin 2026 — HammerPy Insight v3.0 Phase 2 — Roadmap*
 *Phase 2 terminée le 5 juin 2026 — Parser rapport pompe + UI courbe H(Q)*
 *Phase 3 terminée le 5 juin 2026 — AirValveSizing + profil en long + sérialisation + Word*
-*Prochaine revue : démarrage Phase 4 (module Système)*
+*Phase 4 terminée le 6 juin 2026 — SystemDiagnostics 16 checks + onglet UI + section Word + 81 tests*
+*Prochaine revue : finalisation P5 (documentation v3.0)*

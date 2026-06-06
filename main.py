@@ -47,6 +47,7 @@ from dxf_profile_importer import load_dxf_both, HAS_EZDXF
 from column_mapper import get_mapper as _get_column_mapper
 from column_mapper_dialog import ask_column_mapping as _ask_column_mapping
 from ventouses_report import export_ventouses_report, DOCX_AVAILABLE as VENTOUSES_DOCX_AVAILABLE
+from system_diagnostics import SystemDiagnostics, ICON as DIAG_ICON, CAT_A as DIAG_CAT_A
 
 # ── Alias rétrocompatibilité ──────────────────────────────────────
 from utils import parse_number as _parse_number
@@ -102,6 +103,10 @@ class HammerPyApp(ctk.CTk):
         self.workbook_filepath: str = ""
         self.steady_state_status: dict | None = None
         self.transient_status: dict | None = None
+
+        # ── Phase 4 : SystemDiagnostics (résultats du dernier run) ─────
+        self.last_diagnostics: list[dict] | None = None
+        self.last_diagnostics_summary: dict | None = None
 
         # ── Gestion du projet (fichier .hpi) ───────────────────────────
         self.current_project_path: str | None = None
@@ -374,7 +379,7 @@ class HammerPyApp(ctk.CTk):
         self.tabview.grid(row=1, column=1, padx=(10, 18), pady=15, sticky="nsew")
 
         for name in ["Régime Permanent", "Analyse Transitoire", "Rapport Technique",
-                       "Ventouses & Vidanges"]:
+                       "Ventouses & Vidanges", "Système & Diagnostics"]:
             self.tabview.add(name)
 
         self.tabview._segmented_button.configure(font=ctk.CTkFont(size=13, weight="bold"))
@@ -383,6 +388,7 @@ class HammerPyApp(ctk.CTk):
         self._setup_transient_tab()
         self._setup_report_tab()
         self._setup_valve_tab()
+        self._setup_diagnostics_tab()
 
         # ── Hooks de détection de modifications utilisateur ──────────
         # Entry du projet / ingénieur → dirty à chaque frappe
@@ -2318,6 +2324,222 @@ class HammerPyApp(ctk.CTk):
         self._update_title()
 
     # ------------------------------------------------------------------
+    # Phase 4 — Onglet 5 : Système & Diagnostics
+    # ------------------------------------------------------------------
+    def _setup_diagnostics_tab(self):
+        """Crée l'onglet 'Système & Diagnostics' (16 checks A-E)."""
+        try:
+            from tkinter import ttk
+        except ImportError:
+            ttk = None
+        tab = self.tabview.tab("Système & Diagnostics")
+        tab.grid_columnconfigure(0, weight=1)
+        tab.grid_rowconfigure(3, weight=1)
+
+        ctk.CTkLabel(tab, text="Diagnostic Système — 16 vérifications croisées",
+                     font=ctk.CTkFont(size=18, weight="bold"), anchor="w"
+                     ).grid(row=0, column=0, padx=20, pady=(18, 4), sticky="w")
+
+        ctk.CTkLabel(tab,
+                     text="Cohérence Pompe ↔ Réseau ↔ HPT ↔ Ventouses. Catégories A-E.",
+                     text_color="gray", anchor="w"
+                     ).grid(row=1, column=0, padx=20, pady=(0, 8), sticky="w")
+
+        # ── Bandeau KPI (4 compteurs) ─────────────────────────────────
+        kpi_frame = ctk.CTkFrame(tab)
+        kpi_frame.grid(row=2, column=0, padx=20, pady=8, sticky="ew")
+        kpi_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+
+        self.lbl_kpi_ok   = self._make_kpi_card(kpi_frame, "✔ OK",   "0",  "#1a7a1a", col=0)
+        self.lbl_kpi_warn = self._make_kpi_card(kpi_frame, "⚠ WARN", "0",  "#c08000", col=1)
+        self.lbl_kpi_fail = self._make_kpi_card(kpi_frame, "✘ FAIL", "0",  "#c00000", col=2)
+        self.lbl_kpi_na   = self._make_kpi_card(kpi_frame, "— N/A",  "0",  "#888888", col=3)
+
+        # ── Bouton + Treeview ────────────────────────────────────────
+        action_frame = ctk.CTkFrame(tab)
+        action_frame.grid(row=3, column=0, padx=20, pady=4, sticky="nsew")
+        action_frame.grid_columnconfigure(0, weight=1)
+        action_frame.grid_rowconfigure(1, weight=1)
+
+        btn_bar = ctk.CTkFrame(action_frame, fg_color="transparent")
+        btn_bar.grid(row=0, column=0, padx=8, pady=(8, 4), sticky="ew")
+        btn_bar.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkButton(btn_bar, text="  Lancer le diagnostic système  ",
+                      command=self._run_diagnostics,
+                      font=ctk.CTkFont(size=14, weight="bold")
+                      ).grid(row=0, column=0, sticky="w")
+
+        self.lbl_diag_status = ctk.CTkLabel(btn_bar, text="Aucun diagnostic exécuté",
+                                            text_color="gray", anchor="w")
+        self.lbl_diag_status.grid(row=0, column=1, padx=16, sticky="e")
+
+        # Treeview (tableau plat triable)
+        if ttk is not None:
+            cols = ("code", "category", "status", "name", "message")
+            self.tree_diag = ttk.Treeview(action_frame, columns=cols, show="headings",
+                                          height=14, selectmode="browse")
+            self.tree_diag.heading("code",     text="Code",        command=lambda: self._sort_tree("code"))
+            self.tree_diag.heading("category", text="Catégorie",   command=lambda: self._sort_tree("category"))
+            self.tree_diag.heading("status",   text="Statut",      command=lambda: self._sort_tree("status"))
+            self.tree_diag.heading("name",     text="Vérification",command=lambda: self._sort_tree("name"))
+            self.tree_diag.heading("message",  text="Détail",      command=lambda: self._sort_tree("message"))
+
+            self.tree_diag.column("code",     width=60,  anchor="center")
+            self.tree_diag.column("category", width=240, anchor="w")
+            self.tree_diag.column("status",   width=80,  anchor="center")
+            self.tree_diag.column("name",     width=260, anchor="w")
+            self.tree_diag.column("message",  width=520, anchor="w")
+
+            # Style ttk compatible CustomTkinter
+            style = ttk.Style()
+            try:
+                style.theme_use("clam")
+            except Exception:
+                pass
+            style.configure("Treeview", rowheight=24, font=("Segoe UI", 10))
+            style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
+
+            # Couleurs par statut
+            self.tree_diag.tag_configure("OK",   foreground="#1a7a1a")
+            self.tree_diag.tag_configure("WARN", foreground="#c08000")
+            self.tree_diag.tag_configure("FAIL", foreground="#c00000")
+            self.tree_diag.tag_configure("NA",   foreground="#888888")
+
+            ysb = ttk.Scrollbar(action_frame, orient="vertical",
+                                command=self.tree_diag.yview)
+            self.tree_diag.configure(yscrollcommand=ysb.set)
+            self.tree_diag.grid(row=1, column=0, padx=(8, 0), pady=(0, 8), sticky="nsew")
+            ysb.grid(row=1, column=1, padx=(0, 8), pady=(0, 8), sticky="ns")
+
+            self._diag_sort_state = {"col": "code", "reverse": False}
+        else:
+            self.tree_diag = None
+            ctk.CTkLabel(action_frame, text="(ttk indisponible — diagnostic exécutable via menu)",
+                         text_color="gray").grid(row=1, column=0, pady=20)
+
+    def _make_kpi_card(self, parent, title: str, count: str,
+                       color: str, col: int) -> ctk.CTkLabel:
+        """Crée une carte KPI compacte dans le bandeau."""
+        card = ctk.CTkFrame(parent, corner_radius=8)
+        card.grid(row=0, column=col, padx=8, pady=8, sticky="ew")
+        card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(card, text=title, text_color=color,
+                     font=ctk.CTkFont(size=13, weight="bold")
+                     ).grid(row=0, column=0, padx=10, pady=(8, 0), sticky="w")
+        lbl = ctk.CTkLabel(card, text=count, text_color=color,
+                           font=ctk.CTkFont(size=28, weight="bold"))
+        lbl.grid(row=1, column=0, padx=10, pady=(0, 8), sticky="w")
+        return lbl
+
+    def _run_diagnostics(self):
+        """Exécute les 16 checks et peuple le tableau + KPIs."""
+        try:
+            diag = SystemDiagnostics(
+                pump_parsers=self.pump_parsers,
+                air_valve_sizer=self.air_valve_sizer if self.air_valve_sizer.profile else None,
+                workbook_manager=self.workbook_manager if self.workbook_manager.sheets else None,
+                transient_status=self.transient_status,
+                pn_value_bar=self._get_pn_value(),
+                pmin_value_bar=self._get_pmin_value(),
+                vgas_threshold_l=self._threshold_internal_l(),
+            )
+            checks = diag.run_checks()
+            summary = diag.get_summary()
+            self.last_diagnostics = checks
+            self.last_diagnostics_summary = summary
+
+            # Mise à jour des KPIs
+            self.lbl_kpi_ok.configure(text=str(summary.get("OK", 0)))
+            self.lbl_kpi_warn.configure(text=str(summary.get("WARN", 0)))
+            self.lbl_kpi_fail.configure(text=str(summary.get("FAIL", 0)))
+            self.lbl_kpi_na.configure(text=str(summary.get("NA", 0)))
+
+            # Mise à jour du tableau
+            if getattr(self, "tree_diag", None) is not None:
+                for row in self.tree_diag.get_children():
+                    self.tree_diag.delete(row)
+                for c in checks:
+                    status = c.get("status", "NA")
+                    self.tree_diag.insert("", "end", values=(
+                        c.get("code", ""),
+                        c.get("category", ""),
+                        f"{DIAG_ICON.get(status, '?')} {status}",
+                        c.get("name", ""),
+                        c.get("message", ""),
+                    ), tags=(status,))
+
+            # Statut
+            n_fail = summary.get("FAIL", 0)
+            n_warn = summary.get("WARN", 0)
+            n_ok = summary.get("OK", 0)
+            self.lbl_diag_status.configure(
+                text=f"Diagnostic terminé : {n_ok} OK, {n_warn} WARN, {n_fail} FAIL",
+                text_color="#c00000" if n_fail else ("#c08000" if n_warn else "#1a7a1a"),
+            )
+            self._mark_dirty()
+        except Exception as exc:
+            self.lbl_diag_status.configure(
+                text=f"Erreur : {exc}", text_color="#c00000")
+            messagebox.showerror("Erreur diagnostic système", str(exc))
+
+    def _sort_tree(self, col: str):
+        """Tri du Treeview par colonne."""
+        if getattr(self, "tree_diag", None) is None:
+            return
+        state = self._diag_sort_state
+        reverse = False
+        if state["col"] == col:
+            reverse = not state["reverse"]
+        state["col"] = col
+        state["reverse"] = reverse
+
+        rows = [(self.tree_diag.set(iid, col), iid)
+                for iid in self.tree_diag.get_children("")]
+        # Tri naturel
+        def _key(item):
+            v = item[0]
+            # Essayer numérique
+            try:
+                return (0, float(v))
+            except (ValueError, TypeError):
+                return (1, v.lower())
+        rows.sort(key=_key, reverse=reverse)
+        for idx, (_, iid) in enumerate(rows):
+            self.tree_diag.move(iid, "", idx)
+
+    def _refresh_diagnostics_table(self):
+        """Recharge le tableau + KPI depuis last_diagnostics (chargement projet)."""
+        if not self.last_diagnostics:
+            return
+        summary = self.last_diagnostics_summary or {}
+        if hasattr(self, "lbl_kpi_ok"):
+            self.lbl_kpi_ok.configure(text=str(summary.get("OK", 0)))
+            self.lbl_kpi_warn.configure(text=str(summary.get("WARN", 0)))
+            self.lbl_kpi_fail.configure(text=str(summary.get("FAIL", 0)))
+            self.lbl_kpi_na.configure(text=str(summary.get("NA", 0)))
+        if getattr(self, "tree_diag", None) is not None:
+            for row in self.tree_diag.get_children():
+                self.tree_diag.delete(row)
+            for c in self.last_diagnostics:
+                status = c.get("status", "NA")
+                self.tree_diag.insert("", "end", values=(
+                    c.get("code", ""),
+                    c.get("category", ""),
+                    f"{DIAG_ICON.get(status, '?')} {status}",
+                    c.get("name", ""),
+                    c.get("message", ""),
+                ), tags=(status,))
+        if hasattr(self, "lbl_diag_status"):
+            n_fail = summary.get("FAIL", 0)
+            n_warn = summary.get("WARN", 0)
+            n_ok = summary.get("OK", 0)
+            self.lbl_diag_status.configure(
+                text=f"Diagnostic chargé : {n_ok} OK, {n_warn} WARN, {n_fail} FAIL",
+                text_color="#c00000" if n_fail else ("#c08000" if n_warn else "#1a7a1a"),
+            )
+
+    # ------------------------------------------------------------------
     # Construction de l'état complet du projet pour sérialisation
     # ------------------------------------------------------------------
     def _build_project_payload(self) -> dict:
@@ -2414,6 +2636,11 @@ class HammerPyApp(ctk.CTk):
             },
 
             "column_mappings": self._column_mapper.serialize(),
+
+            "system_diagnostics": {
+                "checks":  self.last_diagnostics or [],
+                "summary": self.last_diagnostics_summary or {},
+            } if self.last_diagnostics else {},
         }
 
     # ------------------------------------------------------------------
@@ -2668,6 +2895,14 @@ class HammerPyApp(ctk.CTk):
             if mappings_data:
                 self._column_mapper.deserialize(mappings_data)
 
+            # ── System Diagnostics (Phase 4, rétrocompatible v3.0) ────
+            diag_data = payload.get("system_diagnostics", {})
+            if diag_data:
+                self.last_diagnostics = diag_data.get("checks") or []
+                self.last_diagnostics_summary = diag_data.get("summary") or None
+                if self.last_diagnostics and getattr(self, "tree_diag", None) is not None:
+                    self._refresh_diagnostics_table()
+
             # ── Rapport ──────────────────────────────────────────────
             report_text = payload.get("report_text", "")
             if hasattr(self, "txt_report") and report_text:
@@ -2909,6 +3144,8 @@ class HammerPyApp(ctk.CTk):
                     "vidanges":  self.air_valve_sizer.vidanges,
                     "pipe_dn_mm": self.air_valve_sizer.pipe_dn_mm,
                 } if self.air_valve_sizer.profile else None,
+                diagnostics_checks    = self.last_diagnostics,
+                diagnostics_summary   = self.last_diagnostics_summary,
             )
             doc.save(filepath)
             messagebox.showinfo("Export réussi",

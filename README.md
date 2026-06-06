@@ -35,6 +35,7 @@ Permettre aux ingénieurs hydrauliques de :
   - **6 feuilles du classeur HAMMER** (Pipes, Nœuds, Réservoirs, Pompes, HPT, Ventouses) en `orient='records'` optimisé
   - **Batterie de pompes** : liste de rapports détaillés parsés + mode Continu/Parallèle
   - **Profil en long + ventaises + vidanges** (Phase 3)
+  - **Diagnostic système** (Phase 4) : résultats 16 checks + résumé
   - Texte complet de la prévisualisation du rapport
   - Les graphiques Matplotlib sont **automatiquement régénérés** à l'ouverture
 - **Rétrocompatibilité** : les `.hpi` v2.x restent lisibles par v3.0
@@ -127,6 +128,20 @@ Permettre aux ingénieurs hydrauliques de :
   - Tableau ventouses + synthèse (DN min/max, types)
   - Tableau vidanges + distances aux ventouses
   - Section méthodologie & hypothèses
+
+### Onglet 5 — Système & Diagnostics (Phase 4)
+- **16 vérifications croisées** en 5 catégories (A-E) :
+  - **A. Pompe ↔ Réseau** (3) : point de fonctionnement dans la courbe H(Q), NPSH, vitesse spécifique
+  - **B. Pompe ↔ HPT** (2) : pression refoulement/aspiration vs PN/Pmin
+  - **C. Réseau ↔ HPT** (3) : Pmax/Pmin transitoires, cohérence multi-pompes
+  - **D. HPT ↔ Ventouses / Vidanges** (3) : volume gaz HPT, ventouses aux points hauts, vidanges aux points bas
+  - **E. Cohérence globale** (5) : profil chargé, DN cohérent, cote min positive, pente max, ≥1 pompe
+- **Sévérités** : ✔ OK / ⚠ WARN / ✘ FAIL / — N/A
+- **Bandeau KPI** : 4 compteurs (OK / WARN / FAIL / NA) en temps réel
+- **Tableau plat triable** (TTK Treeview) : code, catégorie, statut, nom, détail
+- **Bouton "Lancer le diagnostic"** : exécute les 16 checks en cascade
+- **Persistance `.hpi`** : résultats sauvegardés, rechargés à l'ouverture
+- **Intégration rapport Word** : section 6 « Diagnostic Système » avec 6.1 Synthèse + 6.2 Détail par catégorie
 
 ---
 
@@ -223,7 +238,8 @@ main.py                          # GUI + entry point
 │   ├── Onglet 1                 # Régime permanent
 │   ├── Onglet 2                 # Analyse transitoire + Matplotlib + Multi-pompes
 │   ├── Onglet 3                 # Rapport et exports
-│   └── Onglet 4                 # Ventaises & Vidanges (Phase 3)
+│   ├── Onglet 4                 # Ventaises & Vidanges (Phase 3)
+│   └── Onglet 5                 # Système & Diagnostics (Phase 4)
 │
 ├── utils.py                     # Fonctions utilitaires partagées
 │   ├── parse_number()           # Parsing numérique HAMMER (nbsp, virgule FR)
@@ -307,4 +323,4 @@ python -m pytest test_workbook_parser.py -v
 
 ---
 
-*Document mis à jour — HammerPy Insight v3.0 Phase 3 + Phase 3.5 Imports multi-format + Phase 3.6 Mapping interactif + Rapport Ventouses — Juin 2026*
+*Document mis à jour — HammerPy Insight v3.0 Phase 3 + Phase 3.5 Imports multi-format + Phase 3.6 Mapping interactif + Rapport Ventouses + Phase 4 SystemDiagnostics — Juin 2026*

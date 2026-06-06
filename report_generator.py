@@ -29,6 +29,8 @@ class WordReportGenerator:
     COULEUR_TITRE_HEX   = (0x1f, 0x53, 0x8d)
     COULEUR_ALERTE_HEX  = (0xc0, 0x00, 0x00)
     COULEUR_OK_HEX      = (0x1a, 0x7a, 0x1a)
+    COULEUR_WARN_HEX    = (0xc0, 0x80, 0x00)
+    COULEUR_NA_HEX      = (0x88, 0x88, 0x88)
 
     def __init__(self):
         self.doc = Document()
@@ -76,6 +78,22 @@ class WordReportGenerator:
         run.font.color.rgb = self._rgb(color_map.get(alert_type, (0, 0, 0)))
         run.bold = (alert_type in ("warning", "error"))
 
+    def _diag_icon(self, status: str) -> str:
+        return {
+            "OK":   "✔",
+            "WARN": "⚠",
+            "FAIL": "✘",
+            "NA":   "—",
+        }.get(status, "•")
+
+    def _diag_color(self, status: str) -> tuple:
+        return {
+            "OK":   self.COULEUR_OK_HEX,
+            "WARN": self.COULEUR_WARN_HEX,
+            "FAIL": self.COULEUR_ALERTE_HEX,
+            "NA":   self.COULEUR_NA_HEX,
+        }.get(status, (0, 0, 0))
+
     def generate(self,
                  metadata: dict,
                  steady: dict | None,
@@ -90,7 +108,9 @@ class WordReportGenerator:
                  volume_threshold_disp: float = 200.0,
                  workbook_summary: dict | None = None,
                  pump_summaries: list[dict] | None = None,
-                 air_valve_data: dict | None = None) -> Document:
+                 air_valve_data: dict | None = None,
+                 diagnostics_checks: list[dict] | None = None,
+                 diagnostics_summary: dict | None = None) -> Document:
         """
         Génère le contenu complet du rapport Word.
 
@@ -573,6 +593,83 @@ class WordReportGenerator:
                         "Aucune ventaise ou vidange recommandée pour ce profil.",
                         "warning"
                     )
+
+        # ── Diagnostic Système (Phase 4) ───────────────────────────
+        if diagnostics_checks:
+            self._add_separator()
+            self._add_title("6. Diagnostic Système (Vérifications croisées)", level=1)
+
+            # 6.1 Synthèse
+            self._add_title("6.1  Synthèse des vérifications", level=2)
+            if diagnostics_summary:
+                n_ok   = diagnostics_summary.get("OK", 0)
+                n_warn = diagnostics_summary.get("WARN", 0)
+                n_fail = diagnostics_summary.get("FAIL", 0)
+                n_na   = diagnostics_summary.get("NA", 0)
+                n_tot  = diagnostics_summary.get("total", n_ok + n_warn + n_fail + n_na)
+                self._add_key_value("Total vérifications", str(n_tot))
+                p_intro = self.doc.add_paragraph()
+                p_intro.add_run(
+                    f"✔  OK : {n_ok}    ⚠  WARN : {n_warn}    ✘  FAIL : {n_fail}    —  N/A : {n_na}"
+                ).bold = True
+                if n_fail == 0 and n_warn == 0:
+                    self._add_alert(
+                        "Toutes les vérifications applicables sont conformes.",
+                        "ok"
+                    )
+                elif n_fail > 0:
+                    self._add_alert(
+                        f"{n_fail} vérification(s) en échec — action corrective requise.",
+                        "error"
+                    )
+                else:
+                    self._add_alert(
+                        f"{n_warn} avertissement(s) détecté(s) — à examiner.",
+                        "warning"
+                    )
+                self.doc.add_paragraph()
+
+            # 6.2 Détail par catégorie
+            self._add_title("6.2  Détail par catégorie", level=2)
+            current_cat = None
+            for c in diagnostics_checks:
+                cat = c.get("category", "")
+                if cat != current_cat:
+                    self._add_title(cat, level=3)
+                    current_cat = cat
+
+                status = c.get("status", "NA")
+                code   = c.get("code", "")
+                name   = c.get("name", "")
+                msg    = c.get("message", "")
+                val    = c.get("value")
+                thresh = c.get("threshold")
+
+                p = self.doc.add_paragraph()
+                run_icon = p.add_run(self._diag_icon(status) + "  ")
+                run_icon.font.color.rgb = self._rgb(self._diag_color(status))
+                run_icon.bold = True
+
+                run_code = p.add_run(f"[{code}]  ")
+                run_code.bold = True
+                run_code.font.color.rgb = self._rgb(self.COULEUR_TITRE_HEX)
+
+                p.add_run(name)
+                p.add_run(" — ")
+                run_msg = p.add_run(msg)
+                run_msg.font.color.rgb = self._rgb(self._diag_color(status))
+
+                if val is not None or thresh is not None:
+                    sub = self.doc.add_paragraph()
+                    sub.paragraph_format.left_indent = Cm(0.8)
+                    if val is not None:
+                        sub_run = sub.add_run(f"Valeur : {val}")
+                        sub_run.font.size = Pt(9)
+                        sub_run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+                    if thresh is not None:
+                        sub_run2 = sub.add_run(f"   Seuil : {thresh}")
+                        sub_run2.font.size = Pt(9)
+                        sub_run2.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
 
         # ── Pied de page ───────────────────────────────────────────────
         self._add_separator()
