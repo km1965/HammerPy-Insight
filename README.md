@@ -121,6 +121,12 @@ Permettre aux ingénieurs hydrauliques de :
   - Tracé en plan (X × Y) si DXF chargé
 - **Tableaux récapitulatifs** : PK, côte, type, DN, distances
 - **Export CSV** des recommandations
+- **Export Rapport Word (.docx)** dédié :
+  - En-tête projet (nom, ingénieur, date, DN)
+  - Image du profil en long avec marqueurs
+  - Tableau ventouses + synthèse (DN min/max, types)
+  - Tableau vidanges + distances aux ventouses
+  - Section méthodologie & hypothèses
 
 ---
 
@@ -262,6 +268,10 @@ main.py                          # GUI + entry point
 ├── column_mapper_dialog.py        # Boîte de dialogue modale (CTk)
 │   └── ask_column_mapping()     # Dropdown + OK/Skip/Cancel
 │
+├── ventouses_report.py            # Rapport Word (.docx) dédié ventouses
+│   ├── VentousesReportGenerator  # Sections : en-tête, profil, ventouses, vidanges
+│   └── export_ventouses_report() # Helper tout-en-un (sizer + metadata + PNG)
+│
 └── air_valve_sizing.py          # Dimensionnement ventaises/vidanges
     ├── AirValveSizing           # Calcul points hauts/bas + sizing
     ├── load_profile_csv()       # Import profil en long (CSV libre)
@@ -293,7 +303,8 @@ python -m pytest test_workbook_parser.py -v
 - 7 tests `AirValveSizing` : profil, points hauts/bas, sizing ventaises/vidanges, DN, export CSV
 - 14 tests DXF & CSV Bentley : normalisation calques, extraction LWPOLYLINE, parsing FlexTable, distance cumulée, pentes, détection points hauts/bas, encodages UTF-16
 - 24 tests ColumnMapper : auto-apprentissage, cache, UI callback, skip/cancel, sérialisation, hash fichier
+- 14 tests ventouses_report : génération, sauvegarde, intégration image PNG, contenu, stats
 
 ---
 
-*Document mis à jour — HammerPy Insight v3.0 Phase 3 + Phase 3.5 Imports multi-format + Phase 3.6 Mapping interactif — Juin 2026*
+*Document mis à jour — HammerPy Insight v3.0 Phase 3 + Phase 3.5 Imports multi-format + Phase 3.6 Mapping interactif + Rapport Ventouses — Juin 2026*

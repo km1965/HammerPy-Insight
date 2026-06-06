@@ -6,6 +6,7 @@
 > **Phase 3** : 🟢 Terminée — AirValveSizing + profil en long + ventaises + vidanges + UI + sérialisation + Word (juin 2026)
 > **Phase 3.5** : 🟢 Terminée — Imports multi-format (CSV Bentley FlexTable + DXF AutoCAD avec calques Plan/Profil) (juin 2026)
 > **Phase 3.6** : 🟢 Terminée — Mapping interactif colonnes avec auto-apprentissage (juin 2026)
+> **Phase 3.7** : 🟢 Terminée — Rapport Word (.docx) dédié Ventouses/Vidanges avec profil en long (juin 2026)
 > **Compatibilité ascendante** : `.hpi` v2.x → v3.0 (migration automatique) ✅
 
 ---
@@ -35,7 +36,8 @@ HammerPy Insight v3 sait :
 - ✅ **Section « Profil en Long »** dans le rapport Word (tableaux ventaises + vidanges)
 - ✅ **Imports multi-format (Phase 3.5)** : CSV Libre, CSV Bentley FlexTable (X,Y,Z → distance cumulée), DXF AutoCAD (calques Tracé en plan + Profil en long)
 - ✅ **Mapping interactif colonnes (Phase 3.6)** : boîte de dialogue modale, auto-apprentissage, persistance .hpi
-- ✅ **116 tests unitaires** validés
+- ✅ **Rapport Word dédié Ventouses/Vidanges (Phase 3.7)** : image profil en long + tableaux + méthodologie
+- ✅ **130 tests unitaires** validés
 
 ### 1.2 Phase 4 — Module Système (prévue)
 - ❌ **SystemDiagnostics** : vérifications croisées (pompe ↔ réseau ↔ HPT ↔ vidanges)
@@ -374,6 +376,7 @@ HammerPy Insight v3 sait :
 | **P3 — Module Ventouses & Vidanges** | AirValveSizing + DrainValveSizing + profil en long + UI + tests + sérialisation + Word | ✅ Terminé |
 | **P3.5 — Imports multi-format** | CSV Bentley FlexTable + DXF (ezdxf) + 21 tests + UI 2 graphiques | ✅ Terminé |
 | **P3.6 — Mapping interactif colonnes** | ColumnMapper + UI modale + auto-apprentissage + 28 tests + .hpi | ✅ Terminé |
+| **P3.7 — Rapport Ventouses Word** | ventouses_report.py + bouton UI + 14 tests + image profil | ✅ Terminé |
 | **P4 — Module Système** | SystemDiagnostics + Rapport Word complet | 📋 À démarrer |
 | **P5 — Documentation** | README, CHANGELOG, guide utilisateur v3.0 | 📋 |
 
@@ -391,6 +394,7 @@ HammerPy Insight v3 sait :
 - 7 tests `AirValveSizing` : profil, points hauts/bas, sizing, DN, export CSV
 - 14 tests DXF & CSV Bentley : normalisation calques, LWPOLYLINE, FlexTable, distance cumulée, pentes, détection points hauts/bas, encodages UTF-16 (Phase 3.5)
 - 24 tests ColumnMapper : auto-apprentissage, cache, UI callback, skip/cancel, sérialisation, hash fichier (Phase 3.6)
+- 14 tests ventouses_report : génération, sauvegarde, intégration image PNG, contenu, stats (Phase 3.7)
 
 ### 6.2 Tests Phase 3 (prévu)
 - `AirValveSizing` : détection points hauts, dimensionnement ventouses (8+ cas)

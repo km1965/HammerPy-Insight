@@ -46,6 +46,7 @@ from air_valve_sizing import AirValveSizing
 from dxf_profile_importer import load_dxf_both, HAS_EZDXF
 from column_mapper import get_mapper as _get_column_mapper
 from column_mapper_dialog import ask_column_mapping as _ask_column_mapping
+from ventouses_report import export_ventouses_report, DOCX_AVAILABLE as VENTOUSES_DOCX_AVAILABLE
 
 # ── Alias rétrocompatibilité ──────────────────────────────────────
 from utils import parse_number as _parse_number
@@ -905,7 +906,14 @@ class HammerPyApp(ctk.CTk):
                       fg_color="transparent", border_width=1,
                       text_color=("gray10", "gray90"),
                       command=self._export_valve_csv
-                      ).grid(row=4, column=0, padx=8, pady=(4, 10))
+                      ).grid(row=4, column=0, padx=8, pady=(4, 4))
+
+        self.btn_export_vent_report = ctk.CTkButton(
+            right, text="📄 Exporter Rapport Ventouses (.docx)",
+            fg_color="#1f538d", hover_color="#14406b",
+            command=self._export_ventouses_report,
+        )
+        self.btn_export_vent_report.grid(row=5, column=0, padx=8, pady=(4, 10), sticky="ew")
 
     # ------------------------------------------------------------------
     # Handlers Phase 3
@@ -1210,6 +1218,103 @@ class HammerPyApp(ctk.CTk):
         if filepath:
             self.air_valve_sizer.export_csv(filepath)
             messagebox.showinfo("Export réussi", f"Fichier enregistré :\n{filepath}")
+
+    def _export_ventouses_report(self):
+        """Exporte un rapport Word (.docx) complet ventouses + vidanges
+        avec le profil en long en image."""
+        if not VENTOUSES_DOCX_AVAILABLE:
+            messagebox.showerror(
+                "Module manquant",
+                "python-docx n'est pas installé.\n"
+                "Lancez : pip install python-docx",
+            )
+            return
+        if not self.air_valve_sizer.profile:
+            messagebox.showwarning(
+                "Aucun profil",
+                "Chargez d'abord un profil en long et lancez le dimensionnement.",
+            )
+            return
+        if not self.air_valve_sizer.ventouses and not self.air_valve_sizer.vidanges:
+            messagebox.showwarning(
+                "Aucun dimensionnement",
+                "Lancez d'abord le calcul des ventouses + vidanges.",
+            )
+            return
+
+        # Déterminer le nom de fichier par défaut
+        default_name = "rapport_ventouses_vidanges.docx"
+        if hasattr(self, "entry_projet") and self.entry_projet.get().strip():
+            default_name = (
+                self.entry_projet.get().strip()
+                .replace(" ", "_")
+                + "_ventouses.docx"
+            )
+
+        filepath = filedialog.asksaveasfilename(
+            title="Enregistrer le rapport Ventouses & Vidanges",
+            defaultextension=".docx",
+            initialfile=default_name,
+            filetypes=[("Word Document", "*.docx")],
+        )
+        if not filepath:
+            return
+
+        # Sauvegarder le graphique profil en long en PNG temporaire
+        png_tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=".png", delete=False
+            ) as tmp:
+                png_tmp = tmp.name
+            self.valve_fig.savefig(png_tmp, dpi=120, bbox_inches="tight",
+                                    facecolor=self.valve_fig.get_facecolor())
+            self.valve_canvas.draw()
+
+            # Construire les métadonnées
+            metadata = {
+                "nom_projet": (self.entry_projet.get().strip()
+                               if hasattr(self, "entry_projet")
+                                  and self.entry_projet.get().strip()
+                               else "Projet sans nom"),
+                "ingenieur":  (self.entry_ingenieur.get().strip()
+                               if hasattr(self, "entry_ingenieur")
+                                  and self.entry_ingenieur.get().strip()
+                               else "—"),
+                "date":       (self.entry_date.get().strip()
+                               if hasattr(self, "entry_date")
+                                  and self.entry_date.get().strip()
+                               else ""),
+                "dn_mm":      float(self.var_pipe_dn.get())
+                               if self.var_pipe_dn.get() else 250.0,
+                "profil_source": (self.valve_profile_filepath
+                                   or "Profil exemple"),
+            }
+
+            # Générer le rapport
+            export_ventouses_report(
+                air_valve_sizer=self.air_valve_sizer,
+                output_path=filepath,
+                metadata=metadata,
+                profile_chart_png_path=png_tmp,
+            )
+
+            messagebox.showinfo(
+                "Rapport généré",
+                f"Rapport Ventouses & Vidanges enregistré :\n{filepath}",
+            )
+        except Exception as exc:
+            messagebox.showerror(
+                "Erreur de génération",
+                f"Impossible de générer le rapport :\n{exc}",
+            )
+        finally:
+            # Nettoyer le PNG temporaire
+            if png_tmp and os.path.isfile(png_tmp):
+                try:
+                    os.unlink(png_tmp)
+                except OSError:
+                    pass
 
     # ================================================================
     # ACTIONS – Handlers événements
