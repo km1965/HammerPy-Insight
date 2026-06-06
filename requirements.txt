@@ -4,6 +4,7 @@ customtkinter==5.2.2
 cycler==0.12.1
 darkdetect==0.8.0
 et_xmlfile==2.0.0
+ezdxf==1.4.3
 fonttools==4.63.0
 kiwisolver==1.5.0
 lxml==6.1.1

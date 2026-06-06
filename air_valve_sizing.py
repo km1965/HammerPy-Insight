@@ -7,6 +7,7 @@ le pré-dimensionnement des ventouses et la localisation des vidanges.
 """
 
 import csv
+import math
 import os
 
 
@@ -112,6 +113,97 @@ class AirValveSizing:
                         for pk, z in sorted(points, key=lambda p: p[0])]
         self._compute_slopes()
         self._find_high_low_points()
+
+    def load_profile_bentley_csv(self, filepath: str) -> bool:
+        """
+        Charge un profil en long depuis un CSV exporté de Bentley HAMMER
+        (FlexTable: Junction Table) avec colonnes Label, X, Y, Elevation.
+
+        Format attendu :
+          Ligne 1 : "FlexTable: Junction Table;;;"
+          Ligne 2 : Label;X (m);Y (m);Elevation (m)
+          Lignes suivantes : données
+
+        La distance cumulée (PK) est calculée par cumul de distances
+        successives entre points (X,Y), en respectant l'ordre du fichier
+        (amont → aval, tel qu'organisé par l'utilisateur).
+
+        Args:
+            filepath: Chemin vers le fichier CSV
+
+        Returns:
+            True si OK, False sinon
+        """
+        try:
+            with open(filepath, 'r', encoding='utf-8-sig') as f:
+                sample = f.read(4096)
+                f.seek(0)
+                try:
+                    dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
+                except csv.Error:
+                    dialect = csv.excel
+                reader = csv.reader(f, dialect)
+                rows = list(reader)
+
+            if not rows:
+                return False
+
+            # Sauter la 1ère ligne (en-tête FlexTable: Junction Table;;;)
+            start = 0
+            if rows[0] and any("flextable" in str(c).lower() for c in rows[0]):
+                start = 1
+
+            # Sauter la ligne d'en-tête des colonnes (Label, X, Y, Elevation)
+            # On la saute si elle contient des mots-clés connus
+            if start < len(rows):
+                first_data_row = rows[start]
+                if first_data_row and any(
+                    kw in str(first_data_row[0]).lower()
+                    for kw in ("label", "id", "junction", "node")
+                ):
+                    start += 1
+
+            # Parser les points (X, Y, Z) — sans tri, ordre du fichier
+            raw_points = []
+            for row in rows[start:]:
+                if len(row) < 4:
+                    continue
+                x = self._parse_val(row[1])
+                y = self._parse_val(row[2])
+                z = self._parse_val(row[3])
+                if x is None or y is None or z is None:
+                    continue
+                raw_points.append((x, y, z))
+
+            if len(raw_points) < 2:
+                return False
+
+            # Calcul de la distance cumulée par cumul de distances successives
+            self.profile = []
+            cum_dist = 0.0
+            prev_x, prev_y = raw_points[0][0], raw_points[0][1]
+            self.profile.append({
+                "pk_m": 0.0,
+                "z_m": raw_points[0][2],
+                "pente_pct": None,
+            })
+            for i in range(1, len(raw_points)):
+                x, y, z = raw_points[i]
+                seg = math.sqrt((x - prev_x) ** 2 + (y - prev_y) ** 2)
+                cum_dist += seg
+                self.profile.append({
+                    "pk_m": round(cum_dist, 3),
+                    "z_m": z,
+                    "pente_pct": None,
+                })
+                prev_x, prev_y = x, y
+
+            self._compute_slopes()
+            self._find_high_low_points()
+            return True
+
+        except Exception:
+            return False
 
     # ------------------------------------------------------------------
     # Calcul des pentes

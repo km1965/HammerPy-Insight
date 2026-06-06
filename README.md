@@ -96,13 +96,23 @@ Permettre aux ingénieurs hydrauliques de :
 - **Export Word (.docx)** professionnel structuré
 
 ### Onglet 4 — Ventaises & Vidanges (Phase 3)
-- **Import du profil en long** (CSV : PK, Z) ou **profil exemple** démo
+- **Imports multi-format** :
+  - **CSV Libre** (PK, Z) — format simple
+  - **CSV Bentley FlexTable** (Label, X, Y, Elevation) — export HAMMER
+    - Distance cumulée calculée par cumul de distances successives (ordre amont→aval)
+  - **DXF AutoCAD** — 1 fichier avec 2 calques LWPOLYLINE :
+    - Calque `Tracé en plan` (vue XY horizontale)
+    - Calque `Profil en long` (X = PK, Y = altitude)
+    - Auto-détection accents/casse (`Tracé en plan`, `Profil en long`, `Plan`, `Profile`…)
+  - **Profil exemple** démo intégré
 - **Saisie du DN conduite** (mm)
 - **Calcul automatique** des ventaises et vidanges :
   - Détection des points hauts/bas du profil
   - Pré-dimensionnement ventaises (anti-vide, combinée, grande orifice)
   - Localisation vidanges aux points bas entre 2 ventaises
-- **Graphique Matplotlib** : profil en long avec marqueurs ▲ ventaises / ▼ vidanges
+- **2 graphiques Matplotlib** :
+  - Profil en long (PK × Z) avec marqueurs ▲ ventaises / ▼ vidanges
+  - Tracé en plan (X × Y) si DXF chargé
 - **Tableaux récapitulatifs** : PK, côte, type, DN, distances
 - **Export CSV** des recommandations
 
@@ -230,9 +240,17 @@ main.py                          # GUI + entry point
 │   ├── WordReportGenerator      # Rapport complet multi-sections
 │   └── generate()               # Sections: Modèle + Pompe + Ventaises/vidanges
 │
+├── dxf_profile_importer.py       # Import profil + tracé depuis DXF (ezdxf)
+│   ├── load_dxf_both()          # Charge plan + profil d'un DXF
+│   ├── load_dxf_plan()          # Extrait polyligne calque "Tracé en plan"
+│   ├── load_dxf_profile()       # Extrait polyligne calque "Profil en long"
+│   └── list_dxf_layers()        # Liste calques LWPOLYLINE disponibles
+│
 └── air_valve_sizing.py          # Dimensionnement ventaises/vidanges
     ├── AirValveSizing           # Calcul points hauts/bas + sizing
-    ├── load_profile_csv()       # Import profil en long (CSV)
+    ├── load_profile_csv()       # Import profil en long (CSV libre)
+    ├── load_profile_bentley_csv() # Import CSV FlexTable Bentley (X,Y,Z)
+    ├── load_profile_manual()    # Saisie manuelle points (PK, Z)
     ├── size_ventaises()         # Pré-dimensionnement ventaises
     ├── size_drains()            # Localisation vidanges
     └── export_csv()             # Export recommandations
@@ -257,7 +275,8 @@ python -m pytest test_workbook_parser.py -v
 - 4 tests rétrocompatibilité : CSV HPT + station lisibles
 - 12 tests `PumpReportParser` : chargement RTF réel, strip RTF, courbe points, interpolation, résumé
 - 7 tests `AirValveSizing` : profil, points hauts/bas, sizing ventaises/vidanges, DN, export CSV
+- 14 tests DXF & CSV Bentley : normalisation calques, extraction LWPOLYLINE, parsing FlexTable, distance cumulée, pentes, détection points hauts/bas
 
 ---
 
-*Document mis à jour — HammerPy Insight v3.0 Phase 3 — Juin 2026*
+*Document mis à jour — HammerPy Insight v3.0 Phase 3 + Imports multi-format — Juin 2026*

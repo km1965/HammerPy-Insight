@@ -43,6 +43,7 @@ from workbook import WorkbookManager
 from pump_parser import PumpReportParser
 from report_generator import WordReportGenerator, DOCX_AVAILABLE
 from air_valve_sizing import AirValveSizing
+from dxf_profile_importer import load_dxf_both, HAS_EZDXF
 
 # ── Alias rétrocompatibilité ──────────────────────────────────────
 from utils import parse_number as _parse_number
@@ -802,26 +803,36 @@ class HammerPyApp(ctk.CTk):
         ctk.CTkButton(toolbar, text="Importer profil (.csv)",
                       command=self._import_valve_profile
                       ).grid(row=0, column=0, padx=(0, 6))
+        ctk.CTkButton(toolbar, text="CSV Bentley (FlexTable)",
+                      fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"),
+                      command=self._import_valve_profile_bentley
+                      ).grid(row=0, column=1, padx=(0, 6))
+        ctk.CTkButton(toolbar, text="Importer DXF",
+                      fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"),
+                      command=self._import_dxf_profile
+                      ).grid(row=0, column=2, padx=(0, 6))
         ctk.CTkButton(toolbar, text="Exemple profil",
                       fg_color="transparent", border_width=1,
                       text_color=("gray10", "gray90"),
                       command=self._load_example_profile
-                      ).grid(row=0, column=1, padx=(0, 6))
+                      ).grid(row=0, column=3, padx=(0, 6))
 
         ctk.CTkLabel(toolbar, text="DN conduite (mm) :",
-                     font=ctk.CTkFont(size=12)).grid(row=0, column=2, padx=(12, 4), sticky="e")
+                     font=ctk.CTkFont(size=12)).grid(row=0, column=4, padx=(12, 4), sticky="e")
         ctk.CTkEntry(toolbar, textvariable=self.var_pipe_dn, width=60
-                     ).grid(row=0, column=3, padx=(0, 6))
+                     ).grid(row=0, column=5, padx=(0, 6))
 
         ctk.CTkButton(toolbar, text="Calculer ventouses + vidanges",
                       fg_color="#2d6a4f", hover_color="#1b4332",
                       font=ctk.CTkFont(weight="bold"),
                       command=self._run_valve_sizing
-                      ).grid(row=0, column=4, padx=(6, 0))
+                      ).grid(row=0, column=6, padx=(6, 0))
 
         self.lbl_valve_status = ctk.CTkLabel(toolbar, text="Aucun profil chargé",
                                               text_color="gray", font=ctk.CTkFont(size=11))
-        self.lbl_valve_status.grid(row=0, column=5, padx=(12, 0))
+        self.lbl_valve_status.grid(row=0, column=7, padx=(12, 0))
 
         # ── Zone principale : graphique + tableaux ──────────────────
         pane = ctk.CTkFrame(tab)
@@ -834,16 +845,35 @@ class HammerPyApp(ctk.CTk):
         chart_frame = ctk.CTkFrame(pane)
         chart_frame.grid(row=0, column=0, padx=(10, 5), pady=10, sticky="nsew")
         chart_frame.grid_columnconfigure(0, weight=1)
-        chart_frame.grid_rowconfigure(0, weight=1)
+        chart_frame.grid_rowconfigure(0, weight=2)  # Profil (plus grand)
+        chart_frame.grid_rowconfigure(1, weight=1)  # Plan (plus petit)
 
-        self.valve_fig = Figure(figsize=(5, 3.5), dpi=100, facecolor="#1a1a2e")
-        self.valve_ax = self.valve_fig.add_subplot(111)
+        self.valve_fig = Figure(figsize=(5, 4.5), dpi=100, facecolor="#1a1a2e")
+        self.valve_ax = self.valve_fig.add_subplot(211)
         self.valve_canvas = FigureCanvasTkAgg(self.valve_fig, chart_frame)
         self.valve_canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
         self.valve_ax.set_xlabel("PK (m)", color="white", fontsize=9)
         self.valve_ax.set_ylabel("Z (m)", color="white", fontsize=9)
         self.valve_ax.set_title("Profil en Long", color="white", fontsize=11)
         self.valve_fig.tight_layout()
+
+        # Graphique tracé en plan (caché par défaut, affiché si DXF chargé)
+        self.valve_plan_fig = Figure(figsize=(5, 2.0), dpi=100, facecolor="#1a1a2e")
+        self.valve_plan_ax = self.valve_plan_fig.add_subplot(111)
+        self.valve_plan_canvas = FigureCanvasTkAgg(self.valve_plan_fig, chart_frame)
+        self.valve_plan_canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew")
+        self.valve_plan_ax.set_xlabel("X (m)", color="white", fontsize=9)
+        self.valve_plan_ax.set_ylabel("Y (m)", color="white", fontsize=9)
+        self.valve_plan_ax.set_title("Tracé en Plan (DXF)", color="white", fontsize=10)
+        self.valve_plan_ax.text(0.5, 0.5, "Aucun DXF chargé",
+                                ha="center", va="center", color="gray",
+                                transform=self.valve_plan_ax.transAxes, fontsize=10)
+        self.valve_plan_fig.tight_layout()
+        self.valve_plan_canvas.draw()
+
+        # Stocker les points du plan DXF
+        self._dxf_plan_points: list[tuple[float, float]] = []
+        self._dxf_plan_layer: str | None = None
 
         # Panneau droit : tableaux ventouses + vidanges
         right = ctk.CTkFrame(pane)
@@ -894,6 +924,78 @@ class HammerPyApp(ctk.CTk):
         else:
             messagebox.showerror("Erreur", "Impossible de charger le profil.\n"
                                "Format attendu : CSV avec colonnes PK (m), Z (m).")
+
+    def _import_valve_profile_bentley(self):
+        """Importe un profil en long depuis un CSV FlexTable Bentley HAMMER.
+        Format : Label, X (m), Y (m), Elevation (m) — distance cumulée calculée
+        par cumul de distances successives entre points."""
+        filepath = filedialog.askopenfilename(
+            title="Importer profil en long (CSV FlexTable Bentley)",
+            filetypes=[("CSV FlexTable", "*Profil*.csv *Profile*.csv *Junction*.csv"),
+                       ("CSV", "*.csv"), ("Tous", "*.*")]
+        )
+        if not filepath:
+            return
+
+        self.valve_profile_filepath = filepath
+        ok = self.air_valve_sizer.load_profile_bentley_csv(filepath)
+        if ok:
+            n = len(self.air_valve_sizer.profile)
+            self.lbl_valve_status.configure(
+                text=f"Profil Bentley chargé — {n} points",
+                text_color="#2d6a4f")
+            self._update_valve_chart()
+            self._mark_dirty()
+        else:
+            messagebox.showerror("Erreur",
+                               "Impossible de charger le profil Bentley.\n"
+                               "Format attendu : CSV FlexTable avec colonnes\n"
+                               "Label, X (m), Y (m), Elevation (m).")
+
+    def _import_dxf_profile(self):
+        """Importe un profil en long et tracé en plan depuis un DXF.
+        Détecte automatiquement les calques 'Tracé en plan' et 'Profil en long'."""
+        if not HAS_EZDXF:
+            messagebox.showerror("Module manquant",
+                               "La librairie ezdxf n'est pas installée.\n"
+                               "Lancez : pip install ezdxf")
+            return
+        filepath = filedialog.askopenfilename(
+            title="Importer profil + tracé en plan depuis DXF",
+            filetypes=[("DXF (AutoCAD)", "*.dxf"), ("Tous", "*.*")]
+        )
+        if not filepath:
+            return
+
+        result = load_dxf_both(filepath)
+        plan_pts = result.get("plan", [])
+        prof_pts = result.get("profile", [])
+
+        if not prof_pts:
+            messagebox.showerror(
+                "Aucun profil trouvé",
+                "Calque 'Profil en long' introuvable dans le DXF.\n\n"
+                "Calques disponibles :\n" +
+                ", ".join(result.get("plan_layer", "") and [result.get("plan_layer")] or [])
+            )
+            return
+
+        # Charger le profil via load_profile_manual
+        self.air_valve_sizer.load_profile_manual([(pk, z) for pk, z in prof_pts])
+        self.valve_profile_filepath = filepath
+
+        # Stocker le plan pour affichage secondaire
+        self._dxf_plan_points = plan_pts
+        self._dxf_plan_layer = result.get("plan_layer")
+
+        n = len(self.air_valve_sizer.profile)
+        plan_info = f" + plan ({len(plan_pts)} pts)" if plan_pts else " (pas de plan)"
+        self.lbl_valve_status.configure(
+            text=f"DXF chargé — {n} points profil{plan_info}",
+            text_color="#2d6a4f")
+        self._update_valve_chart()
+        self._update_valve_plan_chart()
+        self._mark_dirty()
 
     def _load_example_profile(self):
         """Charge un profil exemple pour démonstration."""
@@ -985,6 +1087,51 @@ class HammerPyApp(ctk.CTk):
 
         self.valve_fig.tight_layout()
         self.valve_canvas.draw()
+
+    def _update_valve_plan_chart(self):
+        """Dessine le tracé en plan à partir des points DXF (si chargés)."""
+        ax = self.valve_plan_ax
+        ax.clear()
+
+        if not self._dxf_plan_points:
+            ax.text(0.5, 0.5, "Aucun DXF chargé",
+                    ha="center", va="center", color="gray",
+                    transform=ax.transAxes, fontsize=10)
+            ax.set_xlabel("X (m)", color="white", fontsize=9)
+            ax.set_ylabel("Y (m)", color="white", fontsize=9)
+            title = "Tracé en Plan (DXF)"
+            ax.set_title(title, color="white", fontsize=10)
+            ax.set_facecolor("#1a1a2e")
+            for spine in ax.spines.values():
+                spine.set_color("#444")
+            self.valve_plan_fig.tight_layout()
+            self.valve_plan_canvas.draw()
+            return
+
+        xs = [p[0] for p in self._dxf_plan_points]
+        ys = [p[1] for p in self._dxf_plan_points]
+        ax.plot(xs, ys, color="#f72585", linewidth=1.8, marker="o", markersize=3,
+                label="Tracé")
+        ax.scatter([xs[0]], [ys[0]], color="#06d6a0", s=80, zorder=5,
+                   label="Amont", marker="^")
+        ax.scatter([xs[-1]], [ys[-1]], color="#ef476f", s=80, zorder=5,
+                   label="Aval", marker="v")
+
+        layer = self._dxf_plan_layer or ""
+        ax.set_title(f"Tracé en Plan — calque '{layer}'",
+                     color="white", fontsize=10)
+        ax.set_xlabel("X (m)", color="white", fontsize=9)
+        ax.set_ylabel("Y (m)", color="white", fontsize=9)
+        ax.tick_params(colors="white", labelsize=8)
+        ax.set_aspect("equal", adjustable="datalim")
+        for spine in ax.spines.values():
+            spine.set_color("#444")
+        ax.grid(True, alpha=0.2, color="white")
+        ax.legend(loc="upper right", fontsize=7, facecolor="#1a1a2e",
+                  edgecolor="#444", labelcolor="white")
+
+        self.valve_plan_fig.tight_layout()
+        self.valve_plan_canvas.draw()
 
     def _refresh_valve_textboxes(self):
         """Met à jour les zones de texte ventouses / vidanges."""
@@ -2127,6 +2274,8 @@ class HammerPyApp(ctk.CTk):
                 "profile":    self.air_valve_sizer.profile,
                 "ventouses":  self.air_valve_sizer.ventouses,
                 "vidanges":   self.air_valve_sizer.vidanges,
+                "dxf_plan_points": self._dxf_plan_points,
+                "dxf_plan_layer":  self._dxf_plan_layer,
             },
         }
 
@@ -2366,11 +2515,15 @@ class HammerPyApp(ctk.CTk):
                 self.air_valve_sizer.profile = air_data.get("profile", [])
                 self.air_valve_sizer.ventouses = air_data.get("ventouses", [])
                 self.air_valve_sizer.vidanges = air_data.get("vidanges", [])
+                self._dxf_plan_points = air_data.get("dxf_plan_points", []) or []
+                self._dxf_plan_layer = air_data.get("dxf_plan_layer")
                 self._update_valve_chart()
+                self._update_valve_plan_chart()
                 self._refresh_valve_textboxes()
                 n = len(self.air_valve_sizer.profile)
+                plan_info = f" + {len(self._dxf_plan_points)} pts plan" if self._dxf_plan_points else ""
                 self.lbl_valve_status.configure(
-                    text=f"Projet chargé — {n} points" if n else "Aucun profil",
+                    text=f"Projet chargé — {n} points profil{plan_info}" if n else "Aucun profil",
                     text_color="#2d6a4f" if n else "gray")
 
             # ── Rapport ──────────────────────────────────────────────
