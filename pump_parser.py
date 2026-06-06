@@ -80,14 +80,37 @@ def _strip_rtf(rtf_text: str) -> str:
                     text = text[:start] + text[i+1:]
                     break
 
-    # 5. Supprimer les contrôle mots RTF
+    # 5. Convertir les sauts de ligne RTF en vrais sauts (avant suppression contrôle-mots)
+    # Ne pas doubler si un \n précède déjà \par
+    text = _re.sub(r'(?<!\n)\\par\b', '\n', text)
+    text = _re.sub(r'(?<!\n)\\line\b', '\n', text)
+    text = text.replace('\\tab', '\t')
+
+    # 6. Supprimer les contrôle mots RTF
     text = _re.sub(r'\\[a-zA-Z]+\d*\s?', ' ', text)
 
-    # 6. Nettoyer les accolades restantes et le texte
+    # 7. Nettoyer les accolades restantes et le texte
     text = text.replace('{', '').replace('}', '')
     text = _re.sub(r'[ \t]+', ' ', text)
     text = _re.sub(r' \n', '\n', text)
     text = _re.sub(r'\n\s*\n', '\n', text)
+
+    # 8. Supprimer les artefacts de positionnement RTF en début de ligne
+    #    (ex: "-368 Pump Definition...", "-229 ID", "-229 128")
+    lines = text.split('\n')
+    cleaned = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # Supprimer les groupes "-NNN " en début de ligne (artefacts \absh, \posx, etc.)
+        prev = None
+        while prev != line:
+            prev = line
+            line = _re.sub(r'^-?\d+ ', '', line)
+        cleaned.append(line)
+    text = '\n'.join(cleaned)
+
     return text.strip()
 
 
@@ -104,7 +127,9 @@ class PumpReportParser:
         "downstream pipe":     "downstream_pipe",
         "flow (total)":        "flow_lps",
         "flow (absolute)":     "_flow_abs_lps",
+        "design flow":         "flow_lps",
         "pump head":           "pump_head_m",
+        "design head":         "pump_head_m",
         "pressure (suction)":  "pressure_suction_bar",
         "pressure (discharge)": "pressure_discharge_bar",
         "npsh (required)":     "npsh_required_m",
@@ -226,7 +251,7 @@ class PumpReportParser:
         first_report_idx = -1
         second_report_idx = -1
         for idx, line in enumerate(lines):
-            if "pump detailed report" in line.lower():
+            if "detailed report" in line.lower():
                 if first_report_idx == -1:
                     first_report_idx = idx
                 else:
@@ -234,6 +259,7 @@ class PumpReportParser:
                     break
 
         _phase1_keys = {"pump_id", "label", "downstream_pipe", "speed_factor", "status_initial"}
+        _single_report = second_report_idx < 0
         if first_report_idx >= 0:
             general_start = -1
             for idx in range(first_report_idx + 1, second_report_idx if second_report_idx > 0 else len(lines)):
@@ -248,7 +274,8 @@ class PumpReportParser:
                 line = lines[i]
                 line_lower = line.lower()
                 for pattern, key in self._KEY_MAP.items():
-                    if key in _phase1_keys and pattern in line_lower and key not in result:
+                    # Si un seul rapport, traiter toutes les clés ; sinon phase1 uniquement
+                    if (_single_report or key in _phase1_keys) and pattern in line_lower and key not in result:
                         val_text = None
                         for j in range(i + 1, min(i + 6, len(lines))):
                             candidate = lines[j]
