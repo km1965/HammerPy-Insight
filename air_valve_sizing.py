@@ -65,15 +65,26 @@ class AirValveSizing:
         Retourne True si OK, False sinon.
         """
         try:
-            with open(filepath, 'r', encoding='utf-8-sig') as f:
-                sample = f.read(4096)
-                f.seek(0)
+            # Tenter plusieurs encodages (UTF-16 LE pour exports Excel Bentley)
+            rows = None
+            encodings = ['utf-8-sig', 'utf-16', 'utf-16-le', 'utf-8', 'cp1252', 'latin-1']
+            for enc in encodings:
                 try:
-                    dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
-                except csv.Error:
-                    dialect = csv.excel
-                reader = csv.reader(f, dialect)
-                rows = list(reader)
+                    with open(filepath, 'r', encoding=enc) as f:
+                        sample = f.read(4096)
+                        f.seek(0)
+                        try:
+                            dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
+                        except csv.Error:
+                            dialect = csv.excel
+                        reader = csv.reader(f, dialect)
+                        rows = list(reader)
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+
+            if rows is None:
+                return False
 
             # Détecter si la première ligne est un en-tête
             start = 0
@@ -135,15 +146,26 @@ class AirValveSizing:
             True si OK, False sinon
         """
         try:
-            with open(filepath, 'r', encoding='utf-8-sig') as f:
-                sample = f.read(4096)
-                f.seek(0)
+            # Tenter plusieurs encodages (les exports Bentley sont souvent UTF-16 LE)
+            rows = None
+            encodings = ['utf-8-sig', 'utf-16', 'utf-16-le', 'utf-8', 'cp1252', 'latin-1']
+            for enc in encodings:
                 try:
-                    dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
-                except csv.Error:
-                    dialect = csv.excel
-                reader = csv.reader(f, dialect)
-                rows = list(reader)
+                    with open(filepath, 'r', encoding=enc) as f:
+                        sample = f.read(4096)
+                        f.seek(0)
+                        try:
+                            dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
+                        except csv.Error:
+                            dialect = csv.excel
+                        reader = csv.reader(f, dialect)
+                        rows = list(reader)
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+
+            if rows is None:
+                return False
 
             if not rows:
                 return False

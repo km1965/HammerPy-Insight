@@ -284,3 +284,66 @@ class TestBentleyCsv:
     def test_load_bentley_invalid_file(self):
         avs = AirValveSizing(pipe_dn_mm=250.0)
         assert avs.load_profile_bentley_csv("nonexistent.csv") is False
+
+    def test_load_bentley_utf16_le(self):
+        """Test avec encodage UTF-16 LE (BOM FF FE) — export Excel par défaut."""
+        content_bytes = b'\xff\xfe'  # UTF-16 LE BOM
+        for line in [
+            'FlexTable: Junction Table;;;',
+            'Label;X;Y;Elevation',
+            '1;344013,83;354052,41;109,11',
+            '3;344061,11;354068,70;107,54',
+            '4;344084,70;354076,84;104,02',
+        ]:
+            content_bytes += (line + '\r\n').encode('utf-16-le')
+        f = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+        f.write(content_bytes)
+        f.close()
+        try:
+            avs = AirValveSizing(pipe_dn_mm=250.0)
+            assert avs.load_profile_bentley_csv(f.name) is True
+            assert len(avs.profile) == 3
+        finally:
+            os.unlink(f.name)
+
+    def test_load_bentley_utf16_be(self):
+        """Test avec encodage UTF-16 BE (BOM FE FF)."""
+        content_bytes = b'\xfe\xff'  # UTF-16 BE BOM
+        for line in [
+            'FlexTable: Junction Table;;;',
+            'Label;X;Y;Elevation',
+            '1;344013,83;354052,41;109,11',
+            '3;344061,11;354068,70;107,54',
+        ]:
+            content_bytes += (line + '\r\n').encode('utf-16-be')
+        f = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+        f.write(content_bytes)
+        f.close()
+        try:
+            avs = AirValveSizing(pipe_dn_mm=250.0)
+            assert avs.load_profile_bentley_csv(f.name) is True
+            assert len(avs.profile) == 2
+        finally:
+            os.unlink(f.name)
+
+    def test_load_bentley_multiline_headers(self):
+        """Test avec en-têtes colonnes multi-lignes (Label 'X\\n(m)' etc.)."""
+        content = (
+            'FlexTable: Junction Table;;;\n'
+            'Label;"X\n(m)";"Y\n(m)";"Elevation\n(m)"\n'
+            '1;344013,83;354052,41;109,11\n'
+            '3;344061,11;354068,70;107,54\n'
+            '4;344084,70;354076,84;104,02\n'
+        )
+        f = tempfile.NamedTemporaryFile(
+            suffix=".csv", delete=False, mode='w', encoding='utf-8-sig', newline=''
+        )
+        f.write(content)
+        f.close()
+        try:
+            avs = AirValveSizing(pipe_dn_mm=250.0)
+            assert avs.load_profile_bentley_csv(f.name) is True
+            assert len(avs.profile) == 3
+            assert avs.profile[0]["z_m"] == 109.11
+        finally:
+            os.unlink(f.name)
