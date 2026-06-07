@@ -39,7 +39,7 @@ HammerPy Insight v3 sait :
 - ✅ **Mapping interactif colonnes (Phase 3.6)** : boîte de dialogue modale, auto-apprentissage, persistance .hpi
 - ✅ **Rapport Word dédié Ventouses/Vidanges (Phase 3.7)** : image profil en long + tableaux + méthodologie
 - ✅ **SystemDiagnostics (Phase 4)** : 16 vérifications croisées en 5 catégories (A-E) + onglet UI triable + KPI strip + section Word + sérialisation .hpi
-- ✅ **211 tests unitaires** validés (81 nouveaux pour Phase 4)
+- ✅ **211 tests unitaires** validés (81 nouveaux pour Phase 4) + **24 tests diagnostics_charts** (Phase 4.1)
 
 ### 1.2 Phase 4 — Module Système (terminée ✅)
 - ✅ **SystemDiagnostics** : 16 vérifications croisées (pompe ↔ réseau ↔ HPT ↔ vidanges)
@@ -391,6 +391,7 @@ HammerPy Insight v3 sait :
 - 24 tests ColumnMapper : auto-apprentissage, cache, UI callback, skip/cancel, sérialisation, hash fichier (Phase 3.6)
 - 14 tests ventouses_report : génération, sauvegarde, intégration image PNG, contenu, stats (Phase 3.7)
 - 81 tests SystemDiagnostics : constantes, défauts, 16 checks A-E (cas OK/WARN/FAIL/NA), intégration, sérialisation roundtrip (Phase 4)
+- 24 tests diagnostics_charts : 4 fonctions (KPI donut, catégorie, conformité, profil), None handling, PNG valides, qualité d'image, intégration complète avec rapport Word (Phase 4.1)
 
 ### 6.2 Tests Phase 3 (prévu)
 - `AirValveSizing` : détection points hauts, dimensionnement ventouses (8+ cas)
@@ -426,7 +427,7 @@ HammerPy Insight v3 sait :
 
 | Métrique | Cible | Actuel |
 |---|---|---|
-| Couverture de tests unitaires | > 85% | 211 tests ✅ |
+| Couverture de tests unitaires | > 85% | 235 tests ✅ |
 | Bugs de régression | < 5 | 0 ✅ |
 | Temps de chargement `.hpi` v3.0 (< 5 MB) | < 1 s | ✅ |
 | Temps d'export Word complet (< 15 pages) | < 5 s | ✅ |
@@ -446,8 +447,9 @@ HammerPy Insight/
 ├── report_generator.py              # WordReportGenerator — rapport Word
 ├── air_valve_sizing.py              # AirValveSizing — ventaises/vidanges
 ├── system_diagnostics.py            # SystemDiagnostics — 16 checks A-E (Phase 4)
+├── diagnostics_charts.py            # 4 graphes imprimables pour rapport Word (Phase 4.1)
 ├── hammerpy_icon.ico                # Icône multi-tailles (370 Ko)
-├── test_workbook_parser.py          # 211 tests unitaires (Phase 4)
+├── test_workbook_parser.py          # 235 tests unitaires (Phase 4.1)
 ├── requirements.txt                 # Dépendances
 ├── README.md                        # Documentation v3.0 Phase 3
 ├── ROADMAP.md                       # Ce document
@@ -476,4 +478,5 @@ HammerPy Insight/
 *Phase 2 terminée le 5 juin 2026 — Parser rapport pompe + UI courbe H(Q)*
 *Phase 3 terminée le 5 juin 2026 — AirValveSizing + profil en long + sérialisation + Word*
 *Phase 4 terminée le 6 juin 2026 — SystemDiagnostics 16 checks + onglet UI + section Word + 81 tests*
+*Phase 4.1 terminée le 6 juin 2026 — 4 graphes imprimables (KPI donut, catégorie, conformité, profil) + 24 tests*
 *Prochaine revue : finalisation P5 (documentation v3.0)*

@@ -141,7 +141,11 @@ Permettre aux ingénieurs hydrauliques de :
 - **Tableau plat triable** (TTK Treeview) : code, catégorie, statut, nom, détail
 - **Bouton "Lancer le diagnostic"** : exécute les 16 checks en cascade
 - **Persistance `.hpi`** : résultats sauvegardés, rechargés à l'ouverture
-- **Intégration rapport Word** : section 6 « Diagnostic Système » avec 6.1 Synthèse + 6.2 Détail par catégorie
+- **Intégration rapport Word** : section 6 « Diagnostic Système » avec 6.1 Synthèse + 6.2 Détail par catégorie + 6.3 Visualisations graphiques :
+  - **6.3.a Synthèse globale** : diagramme en anneau (donut) OK/WARN/FAIL/NA avec %
+  - **6.3.b Résultats par catégorie** : barres horizontales empilées A → E
+  - **6.3.c Conformité HPT** : 3 sous-graphes Pmax/Pmin/Vgaz vs seuils (rouge si hors limite)
+  - **6.3.d Profil en long** : profil TN + ventouses (▲) + vidanges (▼), palette imprimable
 
 ---
 

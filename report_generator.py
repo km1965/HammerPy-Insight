@@ -94,6 +94,20 @@ class WordReportGenerator:
             "NA":   self.COULEUR_NA_HEX,
         }.get(status, (0, 0, 0))
 
+    def _insert_chart(self, png_path: str, width_cm: float = 15):
+        """Insère une image PNG centrée dans le document Word."""
+        p = self.doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run()
+        try:
+            run.add_picture(png_path, width=Cm(width_cm))
+        except Exception as exc:
+            err_p = self.doc.add_paragraph()
+            err_run = err_p.add_run(f"[Graphique non insérable : {exc}]")
+            err_run.italic = True
+            err_run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+        self.doc.add_paragraph()
+
     def generate(self,
                  metadata: dict,
                  steady: dict | None,
@@ -110,7 +124,11 @@ class WordReportGenerator:
                  pump_summaries: list[dict] | None = None,
                  air_valve_data: dict | None = None,
                  diagnostics_checks: list[dict] | None = None,
-                 diagnostics_summary: dict | None = None) -> Document:
+                 diagnostics_summary: dict | None = None,
+                 diag_kpi_chart_path: str | None = None,
+                 diag_category_chart_path: str | None = None,
+                 diag_compliance_chart_path: str | None = None,
+                 diag_profile_chart_path: str | None = None) -> Document:
         """
         Génère le contenu complet du rapport Word.
 
@@ -670,6 +688,42 @@ class WordReportGenerator:
                         sub_run2 = sub.add_run(f"   Seuil : {thresh}")
                         sub_run2.font.size = Pt(9)
                         sub_run2.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+
+            # 6.3 Visualisations graphiques (Phase 4)
+            self._add_title("6.3  Visualisations graphiques", level=2)
+            self.doc.add_paragraph()
+
+            # 6.3.a Synthèse (donut)
+            if diag_kpi_chart_path and os.path.isfile(diag_kpi_chart_path):
+                self._add_title("6.3.a  Synthèse globale", level=3)
+                self._insert_chart(diag_kpi_chart_path, width_cm=15)
+
+            # 6.3.b Par catégorie (barres empilées)
+            if diag_category_chart_path and os.path.isfile(diag_category_chart_path):
+                self._add_title("6.3.b  Résultats par catégorie (A → E)", level=3)
+                self._insert_chart(diag_category_chart_path, width_cm=16)
+
+            # 6.3.c Conformité HPT (3 barres)
+            if diag_compliance_chart_path and os.path.isfile(diag_compliance_chart_path):
+                self._add_title("6.3.c  Conformité paramètres transitoires", level=3)
+                self._insert_chart(diag_compliance_chart_path, width_cm=16)
+
+            # 6.3.d Profil en long (si profil chargé)
+            if diag_profile_chart_path and os.path.isfile(diag_profile_chart_path):
+                self._add_title("6.3.d  Profil en long & protections", level=3)
+                self._insert_chart(diag_profile_chart_path, width_cm=16)
+
+            # Si aucun graphe disponible
+            if not any([
+                diag_kpi_chart_path and os.path.isfile(diag_kpi_chart_path),
+                diag_category_chart_path and os.path.isfile(diag_category_chart_path),
+                diag_compliance_chart_path and os.path.isfile(diag_compliance_chart_path),
+                diag_profile_chart_path and os.path.isfile(diag_profile_chart_path),
+            ]):
+                p_na = self.doc.add_paragraph()
+                p_na.add_run(
+                    "Aucun graphique disponible — données insuffisantes pour générer les visualisations."
+                ).italic = True
 
         # ── Pied de page ───────────────────────────────────────────────
         self._add_separator()

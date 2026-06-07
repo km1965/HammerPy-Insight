@@ -3092,7 +3092,11 @@ class HammerPyApp(ctk.CTk):
         if not filepath:
             return
 
-        # Sauvegarde temporaire du graphique Matplotlib (PNG)
+        # ── Sauvegardes temporaires des PNG (graphique HPT + 4 graphes diag) ─
+        # Liste de tous les PNG temporaires à nettoyer dans le finally:
+        chart_paths: list[str | None] = []
+
+        # 1. Graphique HPT (existant)
         chart_path = None
         if self.current_fig:
             try:
@@ -3103,6 +3107,38 @@ class HammerPyApp(ctk.CTk):
                 chart_path = tmp.name
             except Exception:
                 chart_path = None
+        chart_paths.append(chart_path)
+
+        # 2-5. Graphiques Phase 4 (diagnostics_charts)
+        from diagnostics_charts import (
+            build_kpi_donut, build_category_stack,
+            build_compliance_bars, build_profile_chart,
+        )
+        diag_kpi_path        = None
+        diag_category_path   = None
+        diag_compliance_path = None
+        diag_profile_path    = None
+        try:
+            diag_kpi_path = build_kpi_donut(self.last_diagnostics_summary)
+            diag_category_path = build_category_stack(self.last_diagnostics)
+            diag_compliance_path = build_compliance_bars(
+                self.transient_status,
+                self._get_pn_value(),
+                self._get_pmin_value(),
+                self._threshold_internal_l(),
+            )
+            if self.air_valve_sizer.profile:
+                diag_profile_path = build_profile_chart(
+                    profile=self.air_valve_sizer.profile,
+                    ventouses=self.air_valve_sizer.ventouses,
+                    vidanges=self.air_valve_sizer.vidanges,
+                    pipe_dn_mm=self.air_valve_sizer.pipe_dn_mm,
+                )
+        except Exception:
+            # Ne pas bloquer l'export si un graphe échoue
+            pass
+        chart_paths.extend([diag_kpi_path, diag_category_path,
+                            diag_compliance_path, diag_profile_path])
 
         metadata = {
             "nom_projet":       self.entry_projet.get().strip()    if hasattr(self, 'entry_projet')    else "",
@@ -3146,6 +3182,10 @@ class HammerPyApp(ctk.CTk):
                 } if self.air_valve_sizer.profile else None,
                 diagnostics_checks    = self.last_diagnostics,
                 diagnostics_summary   = self.last_diagnostics_summary,
+                diag_kpi_chart_path   = diag_kpi_path,
+                diag_category_chart_path = diag_category_path,
+                diag_compliance_chart_path = diag_compliance_path,
+                diag_profile_chart_path = diag_profile_path,
             )
             doc.save(filepath)
             messagebox.showinfo("Export réussi",
@@ -3153,12 +3193,13 @@ class HammerPyApp(ctk.CTk):
         except Exception as exc:
             messagebox.showerror("Erreur génération Word", str(exc))
         finally:
-            # Nettoyage du fichier temporaire PNG
-            if chart_path and os.path.exists(chart_path):
-                try:
-                    os.unlink(chart_path)
-                except Exception:
-                    pass
+            # Nettoyage de tous les fichiers temporaires PNG
+            for p in chart_paths:
+                if p and os.path.exists(p):
+                    try:
+                        os.unlink(p)
+                    except Exception:
+                        pass
 
 
 # =====================================================================
