@@ -392,6 +392,7 @@ HammerPy Insight v3 sait :
 - 14 tests ventouses_report : génération, sauvegarde, intégration image PNG, contenu, stats (Phase 3.7)
 - 81 tests SystemDiagnostics : constantes, défauts, 16 checks A-E (cas OK/WARN/FAIL/NA), intégration, sérialisation roundtrip (Phase 4)
 - 24 tests diagnostics_charts : 4 fonctions (KPI donut, catégorie, conformité, profil), None handling, PNG valides, qualité d'image, intégration complète avec rapport Word (Phase 4.1)
+- Tests Phase 4.2 : intégration continue — 235 tests validés après modifications (Nq parsing, XLSX import, messages N/A)
 
 ### 6.2 Tests Phase 3 (prévu)
 - `AirValveSizing` : détection points hauts, dimensionnement ventouses (8+ cas)
@@ -427,7 +428,7 @@ HammerPy Insight v3 sait :
 
 | Métrique | Cible | Actuel |
 |---|---|---|
-| Couverture de tests unitaires | > 85% | 235 tests ✅ |
+| Couverture de tests unitaires | > 85% | 235 tests ✅ (dont 105 Phase 4) |
 | Bugs de régression | < 5 | 0 ✅ |
 | Temps de chargement `.hpi` v3.0 (< 5 MB) | < 1 s | ✅ |
 | Temps d'export Word complet (< 15 pages) | < 5 s | ✅ |
@@ -479,4 +480,40 @@ HammerPy Insight/
 *Phase 3 terminée le 5 juin 2026 — AirValveSizing + profil en long + sérialisation + Word*
 *Phase 4 terminée le 6 juin 2026 — SystemDiagnostics 16 checks + onglet UI + section Word + 81 tests*
 *Phase 4.1 terminée le 6 juin 2026 — 4 graphes imprimables (KPI donut, catégorie, conformité, profil) + 24 tests*
+*Phase 4.2 terminée le 8 juin 2026 — Parsing Nq + import XLSX/CSV pompe + 3 templates + messages améliorés*
+
+### 2.6 Phase 4.2 — Import données pompe (Terminée — 8 Juin 2026)
+
+#### A. Parsing Nq (vitesse spécifique) ✅
+- Ajout de `"specific speed"` → `"nq_si"` dans `_KEY_MAP` de `pump_parser.py`
+- Nouvelle méthode `_parse_si_value()` : extrait `SI=25` depuis `"SI=25, US=1280"`
+- Nq exposé dans `get_summary()` et `_UNITS`
+- Le rapport **Définition pompe** contient la vitesse spécifique — le parseur l'exploite maintenant
+
+#### B. Import CSV + XLSX des données pompes ✅
+- `_import_pump_data()` étendue pour accepter `.xlsx`/`.xls` (via `pd.read_excel()` + `openpyxl`)
+- Détection automatique d'encodage (utf-8 → cp1252 → latin-1)
+- Gestion des séparateurs français (`;` comme séparateur, `,` comme virgule décimale)
+- Normalisation flexible des colonnes (tolère `pump_id`, `PumpID`, `ID pompe`, `Nq`, `NPSH_req`...)
+
+#### C. 3 Templates XLSX générables ✅
+- `template_donnees_pompe.xlsx` : `pump_id`, `nq_si`, `npsh_required_m`, `npsh_available_m`
+- `template_courbe_HQ.xlsx` : `pump_id`, `flow_lps`, `head_m`
+- `template_complet.xlsx` : les deux feuilles + instructions
+- Bouton **📄 Générer templates XLSX** dans l'onglet Pompe
+
+#### D. Messages N/A améliorés ✅
+- A1 : `"Aucune courbe H(Q) saisie — ajoutez des points H(Q) dans l'onglet Rapport Technique (Pompe)"`
+- A2 : `"NPSH requis non défini dans le rapport Bentley — complétez le modèle ou saisissez NPSH manuellement"`
+- A3 : `"Nq absent du rapport — importez la définition pompe (contient 'Specific Speed')"`
+
+#### E. Multi-parser search pour A2 et A3 ✅
+- A2 cherche `npsh_required_m` et `npsh_available_m` dans **tous** les parseurs
+- A3 cherche `nq_si` dans **tous** les parseurs (définition + instance)
+
+#### F. Résultat
+| Avant | Après (avec CSV `pump_id`, `nq_si`, `npsh_required_m`) |
+|---|---|
+| A1: NA, A2: NA, A3: NA | A1: NA (msg amélioré), **A2: OK ✅, A3: OK ✅** |
+
 *Prochaine revue : finalisation P5 (documentation v3.0)*

@@ -20,6 +20,7 @@ Version : 3.0 - Juin 2026
 import os
 import json
 import tempfile
+import io
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox
@@ -639,6 +640,20 @@ class HammerPyApp(ctk.CTk):
             command=self._remove_pump
         )
         self.btn_remove_pump.grid(row=1, column=1, padx=(0, 4), pady=8, sticky="w")
+
+        self.btn_import_pump_data = ctk.CTkButton(
+            pump_frame, text="📋 Importer données pompe (XLSX/CSV)", width=220,
+            fg_color="#2e7d32", hover_color="#1b5e20",
+            command=self._import_pump_data
+        )
+        self.btn_import_pump_data.grid(row=1, column=2, padx=(0, 4), pady=8, sticky="w")
+
+        self.btn_gen_templates = ctk.CTkButton(
+            pump_frame, text="📄 Générer templates XLSX", width=180,
+            fg_color="#1565c0", hover_color="#0d47a1",
+            command=self._generate_templates
+        )
+        self.btn_gen_templates.grid(row=1, column=3, padx=(0, 14), pady=8, sticky="w")
 
         # ── Ligne 2 : liste des pompes chargées ──────────────────────
         self.lst_pumps = ctk.CTkTextbox(
@@ -1696,6 +1711,281 @@ class HammerPyApp(ctk.CTk):
             f"HMT pompe : {summary['pump_head_m']} m\n\n"
             f"Total pompes chargées : {len(self.pump_parsers)}"
         )
+
+    def _import_pump_data(self):
+        """Importe des données pompe depuis un CSV ou XLSX (Nq, NPSH...)."""
+        if not self.pump_parsers:
+            messagebox.showwarning(
+                "Aucune pompe",
+                "Chargez d'abord un ou plusieurs rapports pompe (.rtf)")
+            return
+        filepath = filedialog.askopenfilename(
+            title="Sélectionner le fichier de données pompe (CSV ou XLSX)",
+            filetypes=[("Fichier CSV/Excel", "*.csv *.xlsx *.xls"), ("Tous", "*.*")]
+        )
+        if not filepath:
+            return
+
+        ext = os.path.splitext(filepath)[1].lower()
+        try:
+            if ext in (".xlsx", ".xls"):
+                # --- Lecture XLSX ---
+                df_raw = pd.read_excel(filepath, engine="openpyxl")
+                # Forcer les colonnes en string pour normalisation
+                df_raw.columns = [str(c) for c in df_raw.columns]
+                df = df_raw.map(lambda x: str(x).replace(",", ".") if isinstance(x, str) else x)
+            else:
+                # --- Lecture CSV robuste ---
+                encodings = ["utf-8", "cp1252", "latin-1", "iso-8859-1"]
+                raw = None
+                for enc in encodings:
+                    try:
+                        with open(filepath, "r", encoding=enc) as f:
+                            raw = f.read()
+                        break
+                    except (UnicodeDecodeError, LookupError):
+                        continue
+                if raw is None:
+                    raise ValueError("Encodage non reconnu (essayé utf-8, cp1252, latin-1)")
+                first = raw.split("\n")[0].strip()
+                sep = ";" if ";" in first else ","
+                lines = raw.split("\n")
+                header = lines[0]
+                data_rows = []
+                for line in lines[1:]:
+                    if not line.strip():
+                        continue
+                    parts = line.strip().split(sep)
+                    converted = []
+                    for i, part in enumerate(parts):
+                        if i > 0 and "," in part:
+                            part = part.replace(",", ".")
+                        converted.append(part)
+                    data_rows.append(sep.join(converted))
+                csv_text = "\n".join([header] + data_rows)
+                df = pd.read_csv(io.StringIO(csv_text), sep=sep, engine="python")
+        except Exception as exc:
+            messagebox.showerror(
+                "Erreur de lecture",
+                f"Impossible de lire le fichier :\n{exc}")
+            return
+
+        # Normaliser les noms de colonnes
+        col_map = {}
+        for c in df.columns:
+            cl = str(c).strip().lower().replace(" ", "_").replace("-", "_")
+            if any(x in cl for x in ("pump_id", "pumpid", "id_pompe")):
+                col_map[c] = "pump_id"
+            elif cl in ("id", "pump", "label", "nom"):
+                col_map[c] = "pump_id"
+            elif "nq" in cl:
+                col_map[c] = "nq_si"
+            elif cl in ("npsh_required_m", "npsh_req", "npsh_requis"):
+                col_map[c] = "npsh_required_m"
+            elif cl in ("npsh_available_m", "npsh_disp", "npsh_disponible_m"):
+                col_map[c] = "npsh_available_m"
+        df = df.rename(columns=col_map)
+
+        if "pump_id" not in df.columns:
+            messagebox.showerror(
+                "Colonne manquante",
+                "Le fichier doit contenir une colonne 'pump_id' (ou ID / Pump / Label).\n"
+                f"Colonnes trouvées : {', '.join(df.columns)}")
+            return
+
+        extra_keys = [c for c in df.columns if c not in ("pump_id",)]
+        updated = 0
+        errors = []
+        for _, row in df.iterrows():
+            pid = str(row["pump_id"]).strip()
+            matched = False
+            for p in self.pump_parsers:
+                p_pid = str(p.parsed.get("pump_id", "")).strip()
+                p_label = str(p.parsed.get("label", "")).strip()
+                if p_pid == pid or p_label == pid:
+                    for k in extra_keys:
+                        v = row[k]
+                        if pd.isna(v):
+                            continue
+                        try:
+                            p.parsed[k] = float(str(v).replace(",", "."))
+                        except (ValueError, TypeError):
+                            p.parsed[k] = str(v).strip()
+                    updated += 1
+                    matched = True
+                    break
+            if not matched:
+                errors.append(pid)
+
+        self._refresh_pump_kpi()
+        self._mark_dirty()
+        msg = f"{updated} pompe(s) mise(s) à jour."
+        if errors:
+            msg += f"\n\nNon trouvé(es) : {', '.join(errors)}"
+        messagebox.showinfo("Import terminé", msg)
+
+    def _generate_templates(self):
+        """Génère les 3 fichiers templates XLSX au choix de l'utilisateur."""
+        folder = filedialog.askdirectory(
+            title="Choisir le dossier de destination des templates")
+        if not folder:
+            return
+
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+        except ImportError:
+            messagebox.showerror("Erreur", "openpyxl n'est pas installé.")
+            return
+
+        hdr_font = Font(bold=True, color="FFFFFF", size=11)
+        hdr_fill = PatternFill(start_color="2E7D32", end_color="2E7D32", fill_type="solid")
+        instr_font = Font(italic=True, color="555555", size=10)
+
+        templates = []
+
+        # ── Template 1 : Données pompe ───────────────────────────────
+        wb1 = openpyxl.Workbook()
+        ws1 = wb1.active
+        ws1.title = "Données pompe"
+        headers1 = ["pump_id", "nq_si", "npsh_required_m", "npsh_available_m"]
+        for ci, h in enumerate(headers1, 1):
+            c = ws1.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        ws1.cell(row=2, column=1, value="PMP-1")
+        ws1.cell(row=2, column=2, value=25)
+        ws1.cell(row=2, column=3, value=3.5)
+        ws1.cell(row=2, column=4, value=15.35)
+        ws1.cell(row=3, column=1, value="PMP-2")
+        ws1.cell(row=3, column=2, value=25)
+        ws1.cell(row=3, column=3, value=3.5)
+        ws1.cell(row=3, column=4, value=15.35)
+        for ci in range(1, 5):
+            ws1.column_dimensions[chr(64 + ci)].width = 20
+        # Feuille Instructions
+        ws1i = wb1.create_sheet("Instructions")
+        ws1i.cell(row=1, column=1,
+                  value="Colonnes attendues par l'application :").font = Font(bold=True, size=11)
+        for ri, txt in enumerate([
+            "pump_id  : Identifiant de la pompe (doit correspondre à l'étiquette dans le rapport)",
+            "nq_si    : Vitesse spécifique Nq en unités SI",
+            "npsh_required_m : NPSH requis en mètres",
+            "npsh_available_m: NPSH disponible en mètres",
+            "",
+            "Formats acceptés :",
+            "- Nombres avec . ou , comme séparateur décimal",
+            "- Les colonnes peuvent être dans n'importe quel ordre",
+            "- Noms alternatifs reconnus : PumpID, Nq, NPSH_req, NPSH_disp...",
+        ], 3):
+            ws1i.cell(row=ri, column=1, value=txt).font = instr_font
+        ws1i.column_dimensions["A"].width = 60
+        templates.append((folder, "template_donnees_pompe.xlsx", wb1))
+
+        # ── Template 2 : Courbe H(Q) ─────────────────────────────────
+        wb2 = openpyxl.Workbook()
+        ws2 = wb2.active
+        ws2.title = "Courbe H(Q)"
+        headers2 = ["pump_id", "flow_lps", "head_m"]
+        for ci, h in enumerate(headers2, 1):
+            c = ws2.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        example = [
+            ("PMP-1", 0, 150),
+            ("PMP-1", 75, 148),
+            ("PMP-1", 150, 130),
+            ("PMP-2", 0, 150),
+            ("PMP-2", 75, 148),
+            ("PMP-2", 150, 130),
+        ]
+        for ri, (pid, q, h) in enumerate(example, 2):
+            ws2.cell(row=ri, column=1, value=pid)
+            ws2.cell(row=ri, column=2, value=q)
+            ws2.cell(row=ri, column=3, value=h)
+        for ci in range(1, 4):
+            ws2.column_dimensions[chr(64 + ci)].width = 20
+        # Feuille Instructions
+        ws2i = wb2.create_sheet("Instructions")
+        ws2i.cell(row=1, column=1,
+                  value="Colonnes attendues pour la courbe H(Q) :").font = Font(bold=True, size=11)
+        for ri, txt in enumerate([
+            "pump_id  : Identifiant de la pompe",
+            "flow_lps : Débit en L/s (axe X de la courbe)",
+            "head_m   : Hauteur manométrique en mètres (axe Y de la courbe)",
+            "",
+            "Ajoutez autant de points que nécessaire par pompe.",
+            "La courbe sera triée automatiquement par débit croissant.",
+        ], 3):
+            ws2i.cell(row=ri, column=1, value=txt).font = instr_font
+        ws2i.column_dimensions["A"].width = 60
+        templates.append((folder, "template_courbe_HQ.xlsx", wb2))
+
+        # ── Template 3 : Complet (2 feuilles) ────────────────────────
+        wb3 = openpyxl.Workbook()
+        # Feuille 1 : Données pompe
+        ws3a = wb3.active
+        ws3a.title = "Données pompe"
+        for ci, h in enumerate(headers1, 1):
+            c = ws3a.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        ws3a.cell(row=2, column=1, value="PMP-1")
+        ws3a.cell(row=2, column=2, value=25)
+        ws3a.cell(row=2, column=3, value=3.5)
+        ws3a.cell(row=2, column=4, value=15.35)
+        ws3a.cell(row=3, column=1, value="PMP-2")
+        ws3a.cell(row=3, column=2, value=25)
+        ws3a.cell(row=3, column=3, value=3.5)
+        ws3a.cell(row=3, column=4, value=15.35)
+        for ci in range(1, 5):
+            ws3a.column_dimensions[chr(64 + ci)].width = 20
+        # Feuille 2 : Courbe H(Q)
+        ws3b = wb3.create_sheet("Courbe H(Q)")
+        for ci, h in enumerate(headers2, 1):
+            c = ws3b.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        for ri, (pid, q, h) in enumerate(example, 2):
+            ws3b.cell(row=ri, column=1, value=pid)
+            ws3b.cell(row=ri, column=2, value=q)
+            ws3b.cell(row=ri, column=3, value=h)
+        for ci in range(1, 4):
+            ws3b.column_dimensions[chr(64 + ci)].width = 20
+        # Feuille 3 : Instructions
+        ws3i = wb3.create_sheet("Instructions")
+        ws3i.cell(row=1, column=1,
+                  value="Fichier complet — deux feuilles de données :").font = Font(bold=True, size=11)
+        for ri, txt in enumerate([
+            "Feuille 'Données pompe' : pump_id, nq_si, npsh_required_m, npsh_available_m",
+            "Feuille 'Courbe H(Q)'    : pump_id, flow_lps, head_m",
+            "",
+            "Remplissez les feuilles concernées, enregistrez, puis importez ce fichier",
+            "via le bouton 'Importer données pompe (XLSX/CSV)' dans l'application.",
+        ], 3):
+            ws3i.cell(row=ri, column=1, value=txt).font = instr_font
+        ws3i.column_dimensions["A"].width = 70
+        templates.append((folder, "template_complet.xlsx", wb3))
+
+        # Sauvegarde
+        ok = []
+        for fpath, fname, wb in templates:
+            try:
+                wb.save(os.path.join(fpath, fname))
+                ok.append(fname)
+            except Exception as exc:
+                messagebox.showerror("Erreur", f"Impossible d'écrire {fname} :\n{exc}")
+                return
+        messagebox.showinfo(
+            "Templates générés",
+            f"{len(ok)} fichier(s) créé(s) dans :\n{folder}\n\n"
+            + "\n".join(f"✓ {f}" for f in ok)
+        )
+
 
     def _remove_pump(self):
         """Retire la pompe sélectionnée de la batterie."""

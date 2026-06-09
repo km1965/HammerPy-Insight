@@ -141,7 +141,7 @@ class SystemDiagnostics:
             return self._check(
                 "A1", "Point de fonctionnement dans la courbe H(Q)",
                 CAT_A, STATUS_NA,
-                "Aucune courbe H(Q) saisie — vérifiez manuellement",
+                "Aucune courbe H(Q) saisie — ajoutez des points H(Q) dans l'onglet Rapport Technique (Pompe)",
             )
         q_nom = pump.parsed.get("flow_lps")
         h_nom = pump.parsed.get("pump_head_m")
@@ -150,7 +150,7 @@ class SystemDiagnostics:
             return self._check(
                 "A1", "Point de fonctionnement dans la courbe H(Q)",
                 CAT_A, STATUS_NA,
-                "Données Q/H nominales manquantes",
+                "Données Q/H nominales manquantes — vérifiez le rapport pompe chargé",
             )
         ecart = abs(h_curve - h_nom)
         seuil = max(0.05 * h_nom, 1.0)  # 5% ou 1 m
@@ -172,20 +172,24 @@ class SystemDiagnostics:
 
     def _check_A2_npsh(self) -> dict:
         """NPSH disponible ≥ NPSH requis + marge ?"""
-        pump = self._first_pump_parsed()
-        if not pump:
+        if not self._first_pump_parsed():
             return self._check(
                 "A2", "NPSH disponible ≥ requis + marge",
                 CAT_A, STATUS_NA,
-                "Aucune pompe chargée",
+                "Aucune pompe chargée — chargez un rapport pompe via l'onglet Rapport Technique",
             )
-        npsh_req = pump.get("npsh_required_m")
-        npsh_avl = pump.get("npsh_available_m")
+        # Chercher npsh_req et npsh_avl dans tous les parseurs (définition + instance)
+        npsh_req = next(
+            (p.parsed.get("npsh_required_m") for p in self.pump_parsers
+             if p.parsed.get("npsh_required_m") is not None), None)
+        npsh_avl = next(
+            (p.parsed.get("npsh_available_m") for p in self.pump_parsers
+             if p.parsed.get("npsh_available_m") is not None), None)
         if npsh_req is None or npsh_avl is None:
             return self._check(
                 "A2", "NPSH disponible ≥ requis + marge",
                 CAT_A, STATUS_NA,
-                "NPSH (requis ou disponible) manquant dans le rapport pompe",
+                "NPSH requis non défini dans le rapport Bentley — complétez le modèle ou saisissez NPSH manuellement",
             )
         marge = npsh_avl - npsh_req
         if marge >= self.npsh_margin_m:
@@ -214,19 +218,22 @@ class SystemDiagnostics:
 
     def _check_A3_specific_speed(self) -> dict:
         """Vitesse spécifique pompe (Nq) dans la plage usuelle [25-80] SI ?"""
-        pump = self._first_pump_parsed()
-        if not pump:
+        if not self._first_pump_parsed():
             return self._check(
                 "A3", "Vitesse spécifique (Nq) dans plage usuelle",
                 CAT_A, STATUS_NA,
-                "Aucune pompe chargée",
+                "Aucune pompe chargée — chargez un rapport pompe via l'onglet Rapport Technique",
             )
-        nq = pump.get("nq_si")
+        nq = next(
+            (p.parsed.get("nq_si") for p in self.pump_parsers
+             if p.parsed.get("nq_si") is not None),
+            None
+        )
         if nq is None:
             return self._check(
                 "A3", "Vitesse spécifique (Nq) dans plage usuelle",
                 CAT_A, STATUS_NA,
-                "Vitesse spécifique non disponible dans le rapport pompe",
+                "Nq absent du rapport — importez la définition pompe (contient 'Specific Speed') ou saisissez Nq manuellement",
             )
         if self.nq_min_si <= nq <= self.nq_max_si:
             return self._check(

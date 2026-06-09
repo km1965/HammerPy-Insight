@@ -141,6 +141,7 @@ class PumpReportParser:
         "controlled?":         "controlled",
         "hydraulic grade (suction)":  "hydraulic_grade_suction_m",
         "hydraulic grade (discharge)": "hydraulic_grade_discharge_m",
+        "specific speed":      "nq_si",
     }
 
     _UNITS = {
@@ -152,6 +153,7 @@ class PumpReportParser:
         "npsh_available_m": "m",
         "hydraulic_grade_suction_m":  "m",
         "hydraulic_grade_discharge_m": "m",
+        "nq_si": "SI",
     }
 
     def __init__(self):
@@ -290,6 +292,8 @@ class PumpReportParser:
                                 result[key] = None
                             elif key == "controlled":
                                 result[key] = val_clean.lower() in ("true", "yes", "oui", "1")
+                            elif key == "nq_si":
+                                result[key] = self._parse_si_value(val_clean)
                             elif key in ("pump_id", "label", "downstream_pipe", "status_initial"):
                                 result[key] = val_clean
                             else:
@@ -320,6 +324,8 @@ class PumpReportParser:
                                 result[key] = None
                             elif key == "controlled":
                                 result[key] = val_clean.lower() in ("true", "yes", "oui", "1")
+                            elif key == "nq_si":
+                                result[key] = self._parse_si_value(val_clean)
                             else:
                                 parsed = parse_number(val_clean)
                                 if parsed is not None:
@@ -328,6 +334,14 @@ class PumpReportParser:
                 i += 1
 
         return {k: v for k, v in result.items() if not k.startswith("_")}
+
+    @staticmethod
+    def _parse_si_value(text: str) -> float | None:
+        """Parse 'SI=25, US=1280' → 25.0"""
+        m = _re.search(r'SI\s*=\s*([\d.,]+)', text)
+        if m:
+            return parse_number(m.group(1))
+        return None
 
     def get_curve_points(self) -> list[dict]:
         """Retourne les points de courbe H(Q) saisis manuellement."""
@@ -386,6 +400,7 @@ class PumpReportParser:
             "pressure_discharge_bar": self.parsed.get("pressure_discharge_bar"),
             "npsh_available_m": self.parsed.get("npsh_available_m"),
             "npsh_required_m": self.parsed.get("npsh_required_m"),
+            "nq_si": self.parsed.get("nq_si"),
             "downstream_pipe": self.parsed.get("downstream_pipe", "—"),
             "controlled": self.parsed.get("controlled", False),
             "n_curve_points": len(self.curve_points),
