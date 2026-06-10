@@ -75,12 +75,47 @@ class AirValveSizing:
         self._column_mapper = mapper
 
     # ------------------------------------------------------------------
+    # Helpers de lecture CSV / XLSX
+    # ------------------------------------------------------------------
+
+    def _read_csv_rows(self, filepath: str) -> list[list[str]] | None:
+        """Lit un fichier CSV avec détection d'encodage et de séparateur."""
+        encodings = ['utf-8-sig', 'utf-16', 'utf-16-le', 'utf-8', 'cp1252', 'latin-1']
+        for enc in encodings:
+            try:
+                with open(filepath, 'r', encoding=enc) as f:
+                    sample = f.read(4096)
+                    f.seek(0)
+                    try:
+                        dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
+                    except csv.Error:
+                        dialect = csv.excel
+                    reader = csv.reader(f, dialect)
+                    rows = list(reader)
+                return rows
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        return None
+
+    def _read_xlsx_rows(self, filepath: str) -> list[list[str]] | None:
+        """Lit un fichier XLSX/XLS et retourne les lignes (comme csv.reader)."""
+        try:
+            import pandas as pd
+            df = pd.read_excel(filepath, engine='openpyxl')
+            rows = [list(df.columns)]
+            for _, row in df.iterrows():
+                rows.append([str(v) if pd.notna(v) else '' for v in row])
+            return rows
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------------
     # Import profil en long
     # ------------------------------------------------------------------
 
     def load_profile_csv(self, filepath: str) -> bool:
         """
-        Charge un profil en long depuis un CSV (3 colonnes : pk, z, [pente]).
+        Charge un profil en long depuis un CSV ou XLSX (3 colonnes : pk, z, [pente]).
         Retourne True si OK, False sinon.
 
         Modes supportés :
@@ -90,23 +125,11 @@ class AirValveSizing:
           appelle column_mapper (si fourni) pour demander à l'utilisateur
         """
         try:
-            # Tenter plusieurs encodages (UTF-16 LE pour exports Excel Bentley)
-            rows = None
-            encodings = ['utf-8-sig', 'utf-16', 'utf-16-le', 'utf-8', 'cp1252', 'latin-1']
-            for enc in encodings:
-                try:
-                    with open(filepath, 'r', encoding=enc) as f:
-                        sample = f.read(4096)
-                        f.seek(0)
-                        try:
-                            dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
-                        except csv.Error:
-                            dialect = csv.excel
-                        reader = csv.reader(f, dialect)
-                        rows = list(reader)
-                    break
-                except (UnicodeDecodeError, UnicodeError):
-                    continue
+            ext = os.path.splitext(filepath)[1].lower()
+            if ext in ('.xlsx', '.xls'):
+                rows = self._read_xlsx_rows(filepath)
+            else:
+                rows = self._read_csv_rows(filepath)
 
             if rows is None:
                 return False
@@ -229,42 +252,33 @@ class AirValveSizing:
 
     def load_profile_bentley_csv(self, filepath: str) -> bool:
         """
-        Charge un profil en long depuis un CSV exporté de Bentley HAMMER
+        Charge un profil en long depuis un CSV ou XLSX exporté de Bentley HAMMER
         (FlexTable: Junction Table) avec colonnes Label, X, Y, Elevation.
 
-        Format attendu :
+        Format attendu (CSV) :
           Ligne 1 : "FlexTable: Junction Table;;;"
           Ligne 2 : Label;X (m);Y (m);Elevation (m)
           Lignes suivantes : données
+
+        Format XLSX :
+          Feuille unique avec colonnes Label, X (m), Y (m), Elevation (m)
 
         La distance cumulée (PK) est calculée par cumul de distances
         successives entre points (X,Y), en respectant l'ordre du fichier
         (amont → aval, tel qu'organisé par l'utilisateur).
 
         Args:
-            filepath: Chemin vers le fichier CSV
+            filepath: Chemin vers le fichier CSV ou XLSX
 
         Returns:
             True si OK, False sinon
         """
         try:
-            # Tenter plusieurs encodages (les exports Bentley sont souvent UTF-16 LE)
-            rows = None
-            encodings = ['utf-8-sig', 'utf-16', 'utf-16-le', 'utf-8', 'cp1252', 'latin-1']
-            for enc in encodings:
-                try:
-                    with open(filepath, 'r', encoding=enc) as f:
-                        sample = f.read(4096)
-                        f.seek(0)
-                        try:
-                            dialect = csv.Sniffer().sniff(sample, delimiters=',;\t')
-                        except csv.Error:
-                            dialect = csv.excel
-                        reader = csv.reader(f, dialect)
-                        rows = list(reader)
-                    break
-                except (UnicodeDecodeError, UnicodeError):
-                    continue
+            ext = os.path.splitext(filepath)[1].lower()
+            if ext in ('.xlsx', '.xls'):
+                rows = self._read_xlsx_rows(filepath)
+            else:
+                rows = self._read_csv_rows(filepath)
 
             if rows is None:
                 return False

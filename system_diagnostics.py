@@ -675,30 +675,44 @@ class SystemDiagnostics:
     # ────────────────────────────────────────────────────────────
 
     def run_checks(self) -> list[dict]:
-        """Exécute les 16 vérifications et retourne la liste de résultats."""
-        checks = [
-            # A. Pompe ↔ Réseau
-            self._check_A1_operating_point(),
-            self._check_A2_npsh(),
-            self._check_A3_specific_speed(),
-            # B. Pompe ↔ HPT
-            self._check_B1_discharge_pressure(),
-            self._check_B2_suction_pressure(),
-            # C. Réseau ↔ HPT
-            self._check_C1_max_pressure(),
-            self._check_C2_min_pressure(),
-            self._check_C3_multi_pumps(),
-            # D. HPT ↔ Ventouses / Vidanges
-            self._check_D1_vgas(),
-            self._check_D2_air_valves(),
-            self._check_D3_drains(),
-            # E. Cohérence globale
-            self._check_E1_profile_loaded(),
-            self._check_E2_dn_consistency(),
-            self._check_E3_elevation_positive(),
-            self._check_E4_slope_max(),
-            self._check_E5_pumps_loaded(),
-        ]
+        """Exécute les 16 vérifications et retourne la liste de résultats.
+        Chaque appel de vérification est protégé pour éviter qu'une exception
+        non prévue n'interrompe l'ensemble du diagnostic. En cas d'erreur
+        inattendue, le check correspondant renvoie un statut FAILURE avec le
+        message d'exception, garantissant que le processus complet continue.
+        """
+        checks = []
+        for method in [
+            self._check_A1_operating_point,
+            self._check_A2_npsh,
+            self._check_A3_specific_speed,
+            self._check_B1_discharge_pressure,
+            self._check_B2_suction_pressure,
+            self._check_C1_max_pressure,
+            self._check_C2_min_pressure,
+            self._check_C3_multi_pumps,
+            self._check_D1_vgas,
+            self._check_D2_air_valves,
+            self._check_D3_drains,
+            self._check_E1_profile_loaded,
+            self._check_E2_dn_consistency,
+            self._check_E3_elevation_positive,
+            self._check_E4_slope_max,
+            self._check_E5_pumps_loaded,
+        ]:
+            try:
+                checks.append(method())
+            except Exception as exc:
+                # Retourner un résultat générique d'échec pour le check
+                checks.append({
+                    "code": getattr(method, "__name__", "unknown"),
+                    "name": method.__doc__.split("\n")[0] if method.__doc__ else "",
+                    "category": "UNKNOWN",
+                    "status": STATUS_FAIL,
+                    "message": f"Exception inattendue : {exc}",
+                    "value": None,
+                    "threshold": None,
+                })
         return checks
 
     def get_summary(self) -> dict:

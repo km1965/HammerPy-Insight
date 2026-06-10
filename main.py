@@ -940,10 +940,10 @@ class HammerPyApp(ctk.CTk):
     # Handlers Phase 3
     # ------------------------------------------------------------------
     def _import_valve_profile(self):
-        """Importe un profil en long depuis un CSV."""
+        """Importe un profil en long depuis un CSV ou XLSX."""
         filepath = filedialog.askopenfilename(
-            title="Importer profil en long (.csv)",
-            filetypes=[("CSV", "*.csv"), ("Tous", "*.*")]
+            title="Importer profil en long",
+            filetypes=[("CSV/Excel", "*.csv *.xlsx *.xls"), ("Tous", "*.*")]
         )
         if not filepath:
             return
@@ -962,13 +962,13 @@ class HammerPyApp(ctk.CTk):
                                "Format attendu : CSV avec colonnes PK (m), Z (m).")
 
     def _import_valve_profile_bentley(self):
-        """Importe un profil en long depuis un CSV FlexTable Bentley HAMMER.
+        """Importe un profil en long depuis un CSV/XLSX FlexTable Bentley HAMMER.
         Format : Label, X (m), Y (m), Elevation (m) — distance cumulée calculée
         par cumul de distances successives entre points."""
         filepath = filedialog.askopenfilename(
-            title="Importer profil en long (CSV FlexTable Bentley)",
-            filetypes=[("CSV FlexTable", "*Profil*.csv *Profile*.csv *Junction*.csv"),
-                       ("CSV", "*.csv"), ("Tous", "*.*")]
+            title="Importer profil en long (FlexTable Bentley)",
+            filetypes=[("CSV/Excel", "*Profil*.csv *Profile*.csv *Junction*.csv *.xlsx *.xls"),
+                       ("Tous", "*.*")]
         )
         if not filepath:
             return
@@ -1970,6 +1970,206 @@ class HammerPyApp(ctk.CTk):
             ws3i.cell(row=ri, column=1, value=txt).font = instr_font
         ws3i.column_dimensions["A"].width = 70
         templates.append((folder, "template_complet.xlsx", wb3))
+
+        # ── Template 4 : Enveloppe HPT ──────────────────────────────────
+        wb4 = openpyxl.Workbook()
+        ws4 = wb4.active
+        ws4.title = "Enveloppe HPT"
+        hpt_hdrs = ["Volume of gas (L)", "Pressure (Minimum) (bar)", "Pressure (Maximum) (bar)"]
+        for ci, h in enumerate(hpt_hdrs, 1):
+            c = ws4.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        for ci in range(1, 4):
+            ws4.column_dimensions[chr(64 + ci)].width = 30
+        ws4i = wb4.create_sheet("Instructions")
+        ws4i.cell(row=1, column=1,
+                  value="Colonnes attendues pour l'enveloppe transitoire HPT :").font = Font(bold=True, size=11)
+        for ri, txt in enumerate([
+            "Volume of gas (L)       : Volume de gaz en litres (colonne reconnue par 'volume of gas')",
+            "Pressure (Minimum) (bar): Pression minimale en bars (colonne reconnue par 'pressure (minimum)')",
+            "Pressure (Maximum) (bar): Pression maximale en bars (colonne reconnue par 'pressure (maximum)')",
+            "",
+            "Importez ce fichier via le bouton 'Fichier transitoire HPT' dans l'onglet 'Transitoire'.",
+            "Noms alternatifs reconnus : Pmin, P max, Volume gaz, Gas Volume...",
+        ], 3):
+            ws4i.cell(row=ri, column=1, value=txt).font = instr_font
+        ws4i.column_dimensions["A"].width = 65
+        templates.append((folder, "template_hpt_enveloppe.xlsx", wb4))
+
+        # ── Template 5 : Régime permanent (Station) ─────────────────────
+        wb5 = openpyxl.Workbook()
+        ws5 = wb5.active
+        ws5.title = "Régime permanent"
+        stn_hdrs = ["Flow (m3/h)", "HMT (m)"]
+        for ci, h in enumerate(stn_hdrs, 1):
+            c = ws5.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        for ci in range(1, 3):
+            ws5.column_dimensions[chr(64 + ci)].width = 20
+        ws5i = wb5.create_sheet("Instructions")
+        ws5i.cell(row=1, column=1,
+                  value="Colonnes attendues pour le régime permanent de la station :").font = Font(bold=True, size=11)
+        for ri, txt in enumerate([
+            "Flow (m3/h) : Débit en m³/h (colonne reconnue par 'flow', 'debit', 'm3/h')",
+            "HMT (m)     : Hauteur manométrique totale en mètres (colonne reconnue par 'hmt', 'head')",
+            "",
+            "Importez ce fichier via le bouton 'Régime permanent' dans l'onglet 'Station'.",
+            "Noms alternatifs : Q (m3/h), Débit, Head, Pump head, Hauteur...",
+        ], 3):
+            ws5i.cell(row=ri, column=1, value=txt).font = instr_font
+        ws5i.column_dimensions["A"].width = 65
+        templates.append((folder, "template_station.xlsx", wb5))
+
+        # ── Template 6 : Profil ventouse (PK, Z) ────────────────────────
+        wb6 = openpyxl.Workbook()
+        ws6 = wb6.active
+        ws6.title = "Profil"
+        prof_hdrs = ["PK (m)", "Z (m)", "Pente (%)"]
+        for ci, h in enumerate(prof_hdrs, 1):
+            c = ws6.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        for ci in range(1, 4):
+            ws6.column_dimensions[chr(64 + ci)].width = 20
+        ws6i = wb6.create_sheet("Instructions")
+        ws6i.cell(row=1, column=1,
+                  value="Colonnes attendues pour le profil en long (ventouses/vidanges) :").font = Font(bold=True, size=11)
+        for ri, txt in enumerate([
+            "PK (m)   : Point kilométrique / abscisse curviligne en mètres",
+            "Z (m)    : Côte / altitude / élévation du terrain en mètres",
+            "Pente (%) : Pente locale en pourcentage (optionnelle)",
+            "",
+            "Importez ce fichier via le bouton 'Profil' dans l'onglet 'Ventouses'.",
+            "Noms alternatifs : Distance, Abscisse, Elevation, TN, Slope...",
+        ], 3):
+            ws6i.cell(row=ri, column=1, value=txt).font = instr_font
+        ws6i.column_dimensions["A"].width = 65
+        templates.append((folder, "template_profil_ventouse.xlsx", wb6))
+
+        # ── Template 7 : Profil Bentley (Label, X, Y, Z) ────────────────
+        wb7 = openpyxl.Workbook()
+        ws7 = wb7.active
+        ws7.title = "Bentley"
+        bent_hdrs = ["Label", "X (m)", "Y (m)", "Elevation (m)"]
+        for ci, h in enumerate(bent_hdrs, 1):
+            c = ws7.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        for ci in range(1, 5):
+            ws7.column_dimensions[chr(64 + ci)].width = 22
+        ws7i = wb7.create_sheet("Instructions")
+        ws7i.cell(row=1, column=1,
+                  value="Colonnes attendues pour le profil Bentley FlexTable :").font = Font(bold=True, size=11)
+        for ri, txt in enumerate([
+            "Label       : Identifiant du nœud (optionnel pour le calcul)",
+            "X (m)       : Coordonnée X en mètres",
+            "Y (m)       : Coordonnée Y en mètres",
+            "Elevation (m) : Élévation / cote Z du point en mètres",
+            "",
+            "Importez ce fichier via le bouton 'Profil Bentley' dans l'onglet 'Ventouses'.",
+            "La distance cumulée (PK) est calculée automatiquement.",
+        ], 3):
+            ws7i.cell(row=ri, column=1, value=txt).font = instr_font
+        ws7i.column_dimensions["A"].width = 65
+        templates.append((folder, "template_profil_bentley.xlsx", wb7))
+
+        # ── Template 8 : Classeur FlexTables (6 feuilles) ──────────────
+        wb8 = openpyxl.Workbook()
+        # Feuille Pipes
+        ws8a = wb8.active
+        ws8a.title = "Pipes"
+        pipes_hdrs = [
+            "Label", "Length (User Defined) (m)", "Start Node", "Stop Node",
+            "Diameter (mm)", "Material", "Hazen-Williams C", "Wave Speed (m/s)",
+            "Pressure (Maximum, Transient) (bars)", "Pressure (Minimum, Transient) (bars)",
+        ]
+        for ci, h in enumerate(pipes_hdrs, 1):
+            c = ws8a.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        for ci in range(1, len(pipes_hdrs) + 1):
+            ws8a.column_dimensions[chr(64 + ci) if ci <= 26 else "A" + chr(64 + ci - 26)].width = 32
+        # Feuille Nodes
+        ws8b = wb8.create_sheet("Nodes")
+        nodes_hdrs = [
+            "Label", "Elevation (m)", "X (m)", "Y (m)",
+            "Pressure (Maximum, Transient) (bars)", "Pressure (Minimum, Transient) (bars)",
+        ]
+        for ci, h in enumerate(nodes_hdrs, 1):
+            c = ws8b.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        for ci in range(1, len(nodes_hdrs) + 1):
+            ws8b.column_dimensions[chr(64 + ci)].width = 36
+        # Feuille Pumps
+        ws8c = wb8.create_sheet("Pumps")
+        pumps_hdrs = [
+            "Label", "Elevation (m)", "Flow (Total) (L/s)", "Pump Head (m)",
+            "Pressure (Maximum, Transient) (bars)", "Pressure (Minimum, Transient) (bars)",
+        ]
+        for ci, h in enumerate(pumps_hdrs, 1):
+            c = ws8c.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        for ci in range(1, len(pumps_hdrs) + 1):
+            ws8c.column_dimensions[chr(64 + ci)].width = 36
+        # Feuille Reservoirs
+        ws8d = wb8.create_sheet("Reservoirs")
+        res_hdrs = ["Label", "Elevation (m)"]
+        for ci, h in enumerate(res_hdrs, 1):
+            c = ws8d.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        ws8d.column_dimensions["A"].width = 22
+        ws8d.column_dimensions["B"].width = 22
+        # Feuille HPT
+        ws8e = wb8.create_sheet("HPT")
+        hpt_ws_hdrs = ["Label", "Volume of Gas"]
+        for ci, h in enumerate(hpt_ws_hdrs, 1):
+            c = ws8e.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        ws8e.column_dimensions["A"].width = 22
+        ws8e.column_dimensions["B"].width = 22
+        # Feuille Air Valves
+        ws8f = wb8.create_sheet("Air Valves")
+        av_hdrs = ["Label", "Air Volume (Maximum)"]
+        for ci, h in enumerate(av_hdrs, 1):
+            c = ws8f.cell(row=1, column=ci, value=h)
+            c.font = hdr_font
+            c.fill = hdr_fill
+            c.alignment = Alignment(horizontal="center")
+        ws8f.column_dimensions["A"].width = 22
+        ws8f.column_dimensions["B"].width = 22
+        # Feuille Instructions
+        ws8i = wb8.create_sheet("Instructions")
+        ws8i.cell(row=1, column=1,
+                  value="Classeur HAMMER FlexTables — 6 feuilles de données :").font = Font(bold=True, size=11)
+        for ri, txt in enumerate([
+            "Pipes      : Label, Length (User Defined) (m), Start Node, Stop Node, Diameter (mm), Material, Hazen-Williams C, Wave Speed (m/s), Pressure (Max, Transient) (bars), Pressure (Min, Transient) (bars)",
+            "Nodes      : Label, Elevation (m), X (m), Y (m), Pressure (Max, Transient) (bars), Pressure (Min, Transient) (bars)",
+            "Pumps      : Label, Elevation (m), Flow (Total) (L/s), Pump Head (m), Pressure (Max, Transient) (bars), Pressure (Min, Transient) (bars)",
+            "Reservoirs : Label, Elevation (m)",
+            "HPT        : Label, Volume of Gas",
+            "Air Valves : Label, Air Volume (Maximum)",
+            "",
+            "Importez ce fichier via le bouton 'Classeur HAMMER' dans l'onglet 'Classeur'.",
+            "Noms de feuilles alternatifs reconnus : Conduites, Noeuds, Pompes, Tanks, Ventouses...",
+        ], 3):
+            ws8i.cell(row=ri, column=1, value=txt).font = instr_font
+        ws8i.column_dimensions["A"].width = 100
+        templates.append((folder, "template_classeur.xlsx", wb8))
 
         # Sauvegarde
         ok = []

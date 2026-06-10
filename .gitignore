@@ -33,3 +33,4 @@ rapport.docx
 build_error.log
 .gitignore
 build_output.log
+settings.json
