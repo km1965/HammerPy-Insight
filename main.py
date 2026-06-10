@@ -26,6 +26,8 @@ from datetime import datetime
 from tkinter import filedialog, messagebox
 
 import pandas as pd
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
 import customtkinter as ctk
 
 # Imports pour Matplotlib et son intégration dans Tkinter
@@ -1829,13 +1831,6 @@ class HammerPyApp(ctk.CTk):
         folder = filedialog.askdirectory(
             title="Choisir le dossier de destination des templates")
         if not folder:
-            return
-
-        try:
-            import openpyxl
-            from openpyxl.styles import Font, PatternFill, Alignment
-        except ImportError:
-            messagebox.showerror("Erreur", "openpyxl n'est pas installé.")
             return
 
         hdr_font = Font(bold=True, color="FFFFFF", size=11)
