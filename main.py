@@ -1821,6 +1821,10 @@ class HammerPyApp(ctk.CTk):
                 col_map[c] = "npsh_required_m"
             elif cl in ("npsh_available_m", "npsh_disp", "npsh_disponible_m"):
                 col_map[c] = "npsh_available_m"
+            elif cl in ("flow_lps", "debit_lps", "q_lps"):
+                col_map[c] = "flow_lps"
+            elif cl in ("head_m", "hmt_m", "hauteur_m"):
+                col_map[c] = "head_m"
         df = df.rename(columns=col_map)
 
         if "pump_id" not in df.columns:
@@ -1830,33 +1834,76 @@ class HammerPyApp(ctk.CTk):
                 f"Colonnes trouvées : {', '.join(df.columns)}")
             return
 
-        extra_keys = [c for c in df.columns if c not in ("pump_id",)]
-        updated = 0
+        has_curve = "flow_lps" in df.columns and "head_m" in df.columns
+        scalar_keys = [c for c in df.columns if c not in ("pump_id", "flow_lps", "head_m")]
+        updated_pumps = set()
         errors = []
-        for _, row in df.iterrows():
-            pid = str(row["pump_id"]).strip()
-            matched = False
-            for p in self.pump_parsers:
-                p_pid = str(p.parsed.get("pump_id", "")).strip()
-                p_label = str(p.parsed.get("label", "")).strip()
-                if p_pid == pid or p_label == pid:
-                    for k in extra_keys:
-                        v = row[k]
-                        if pd.isna(v):
-                            continue
-                        try:
-                            p.parsed[k] = float(str(v).replace(",", "."))
-                        except (ValueError, TypeError):
-                            p.parsed[k] = str(v).strip()
-                    updated += 1
-                    matched = True
-                    break
-            if not matched:
-                errors.append(pid)
+
+        if has_curve:
+            # Mode courbe H(Q) : grouper les points par pompe
+            for pid, group in df.groupby("pump_id"):
+                pid = str(pid).strip()
+                matched = False
+                for p in self.pump_parsers:
+                    p_pid = str(p.parsed.get("pump_id", "")).strip()
+                    p_label = str(p.parsed.get("label", "")).strip()
+                    if p_pid == pid or p_label == pid:
+                        p.clear_curve_points()
+                        for _, row in group.iterrows():
+                            q = row["flow_lps"]
+                            h = row["head_m"]
+                            if pd.notna(q) and pd.notna(h):
+                                try:
+                                    p.add_curve_point(
+                                        float(str(q).replace(",", ".")),
+                                        float(str(h).replace(",", "."))
+                                    )
+                                except (ValueError, TypeError):
+                                    pass
+                        # Stocker aussi les colonnes scalaires (nq_si, npsh...)
+                        for _, row in group.iterrows():
+                            for k in scalar_keys:
+                                v = row[k]
+                                if pd.notna(v):
+                                    try:
+                                        p.parsed[k] = float(str(v).replace(",", "."))
+                                    except (ValueError, TypeError):
+                                        p.parsed[k] = str(v).strip()
+                        updated_pumps.add(pid)
+                        matched = True
+                        break
+                if not matched:
+                    errors.append(pid)
+        else:
+            # Mode données scalaires : 1 ligne par pompe
+            for _, row in df.iterrows():
+                pid = str(row["pump_id"]).strip()
+                matched = False
+                for p in self.pump_parsers:
+                    p_pid = str(p.parsed.get("pump_id", "")).strip()
+                    p_label = str(p.parsed.get("label", "")).strip()
+                    if p_pid == pid or p_label == pid:
+                        for k in scalar_keys:
+                            v = row[k]
+                            if pd.isna(v):
+                                continue
+                            try:
+                                p.parsed[k] = float(str(v).replace(",", "."))
+                            except (ValueError, TypeError):
+                                p.parsed[k] = str(v).strip()
+                        updated_pumps.add(pid)
+                        matched = True
+                        break
+                if not matched:
+                    errors.append(pid)
 
         self._refresh_pump_kpi()
         self._mark_dirty()
-        msg = f"{updated} pompe(s) mise(s) à jour."
+        n = len(updated_pumps)
+        msg = f"{n} pompe(s) mise(s) à jour."
+        if has_curve:
+            n_pts = sum(len(p.curve_points) for p in self.pump_parsers)
+            msg += f" ({n_pts} points de courbe H(Q) importés)"
         if errors:
             msg += f"\n\nNon trouvé(es) : {', '.join(errors)}"
         messagebox.showinfo("Import terminé", msg)

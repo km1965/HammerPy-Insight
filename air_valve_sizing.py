@@ -585,18 +585,18 @@ class AirValveSizing:
                 x, y = v["pk_m"], v["z_m"]
                 msp.add_circle((x, y, 0.0), radius=1.5,
                                dxfattribs={"layer": "Ventouses", "color": 3})
-                msp.add_text(v["type"], dxfattribs={
-                    "layer": "Ventouses", "color": 3, "height": 2.0
-                }).set_pos((x, y + 2.5), align="CENTER")
+                txt = msp.add_text(v["type"], dxfattribs={
+                    "layer": "Ventouses", "color": 3, "height": 2.0})
+                txt.set_placement((x, y + 2.5, 0.0), align=txt.CENTER)
 
             # -- Vidanges (cercles + texte) --
             for d in self.vidanges:
                 x, y = d["pk_m"], d["z_m"]
                 msp.add_circle((x, y, 0.0), radius=1.5,
                                dxfattribs={"layer": "Vidanges", "color": 1})
-                msp.add_text(d["type"], dxfattribs={
-                    "layer": "Vidanges", "color": 1, "height": 2.0
-                }).set_pos((x, y + 2.5), align="CENTER")
+                txt = msp.add_text(d["type"], dxfattribs={
+                    "layer": "Vidanges", "color": 1, "height": 2.0})
+                txt.set_placement((x, y + 2.5, 0.0), align=txt.CENTER)
 
             doc.saveas(filepath)
             return True, ""
