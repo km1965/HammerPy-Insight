@@ -1101,13 +1101,13 @@ class HammerPyApp(ctk.CTk):
         )
         if not filepath:
             return
-        ok = self.air_valve_sizer.export_dxf(filepath)
+        ok, err = self.air_valve_sizer.export_dxf(filepath)
         if ok:
             messagebox.showinfo("Export DXF réussi",
                                f"Fichier créé :\n{filepath}")
         else:
             messagebox.showerror("Erreur export DXF",
-                                "Impossible d'exporter le DXF.")
+                                f"Échec de l'export DXF :\n{err}")
 
     def _run_valve_sizing(self):
         """Lance le dimensionnement ventouses + vidanges."""

@@ -3,7 +3,7 @@
 """
 dxf_profile_importer.py — Import de profil en long et tracé en plan depuis DXF.
 
-Format attendu : 1 fichier DXF contenant 2 calques (LWPOLYLINE) :
+Format attendu : 1 fichier DXF contenant 2 calques (LWPOLYLINE ou POLYLINE) :
   - "Tracé en plan" (vue XY horizontale)
   - "Profil en long" (X = distance cumulée, Y = altitude)
 
@@ -24,12 +24,15 @@ except ImportError:
     _ezdxf_entities = None
 
 
+# Types DXF supportés (LWPOLYLINE + POLYLINE)
+_POLYLINE_TYPES = "LWPOLYLINE POLYLINE"
+
 # Noms de calques reconnus (normalisés sans accents, lowercase, sans espaces multiples)
 _PLAN_PATTERNS = [
-    "tracé en plan", "tracé en plan", "trace en plan",
-    "tracé", "trace", "plan", "plan view", "plan_view",
+    "trace en plan", "trace en plan", "trace en plan",
+    "trace", "trace", "plan", "plan view", "plan_view",
     "view plan", "view_plan", "alignment", "alignement",
-    "tracé plan", "trace plan", "xymap",
+    "trace plan", "trace plan", "xymap",
 ]
 _PROFILE_PATTERNS = [
     "profil en long", "profil", "profile", "longitudinal profile",
@@ -60,9 +63,21 @@ def _match_layer(layer_name: str, patterns: list[str]) -> bool:
     return False
 
 
+def _get_vertices(entity) -> list[tuple[float, float]]:
+    """Extrait les sommets (X, Y) d'une LWPOLYLINE ou POLYLINE."""
+    try:
+        if entity.dxftype() == "LWPOLYLINE":
+            return [(float(vx), float(vy)) for vx, vy in entity.vertices()]
+        elif entity.dxftype() == "POLYLINE":
+            return [(float(v.dxf.location.x), float(v.dxf.location.y))
+                    for v in entity.vertices]
+    except Exception:
+        return []
+
+
 def list_dxf_layers(filepath: str) -> list[str]:
     """
-    Liste tous les calques contenant des LWPOLYLINE dans un fichier DXF.
+    Liste tous les calques contenant des LWPOLYLINE ou POLYLINE dans un DXF.
 
     Args:
         filepath: Chemin vers le fichier .dxf
@@ -76,7 +91,7 @@ def list_dxf_layers(filepath: str) -> list[str]:
         doc = ezdxf.readfile(filepath)
         msp = doc.modelspace()
         layers = set()
-        for entity in msp.query("LWPOLYLINE"):
+        for entity in msp.query(_POLYLINE_TYPES):
             layer = entity.dxf.layer
             if layer:
                 layers.add(layer)
@@ -85,12 +100,12 @@ def list_dxf_layers(filepath: str) -> list[str]:
         return []
 
 
-def _extract_lwpolylines(filepath: str, target_layers: list[str]) -> list:
+def _extract_polylines(filepath: str, target_layers: list[str]) -> list:
     """
-    Extrait les LWPOLYLINE d'un DXF dont le calque matche les patterns cibles.
+    Extrait les LWPOLYLINE / POLYLINE d'un DXF dont le calque matche.
 
     Returns:
-        Liste d'objets LWPOLYLINE (peut être vide)
+        Liste d'entités (peut être vide)
     """
     if not HAS_EZDXF:
         return []
@@ -98,13 +113,21 @@ def _extract_lwpolylines(filepath: str, target_layers: list[str]) -> list:
         doc = ezdxf.readfile(filepath)
         msp = doc.modelspace()
         matched = []
-        for entity in msp.query("LWPOLYLINE"):
+        for entity in msp.query(_POLYLINE_TYPES):
             layer = entity.dxf.layer or ""
             if _match_layer(layer, target_layers):
                 matched.append(entity)
         return matched
     except Exception:
         return []
+
+
+def _points_from_entities(entities: list) -> list[tuple[float, float]]:
+    """Extrait les points de la polyligne la plus longue d'une liste."""
+    if not entities:
+        return []
+    best = max(entities, key=lambda e: len(_get_vertices(e)))
+    return _get_vertices(best)
 
 
 def load_dxf_plan(filepath: str) -> list[tuple[float, float]]:
@@ -119,15 +142,8 @@ def load_dxf_plan(filepath: str) -> list[tuple[float, float]]:
     Returns:
         Liste de tuples (X_m, Y_m), ou [] si erreur
     """
-    entities = _extract_lwpolylines(filepath, _PLAN_PATTERNS)
-    if not entities:
-        return []
-    # Prendre la polyligne avec le plus de sommets
-    best = max(entities, key=lambda e: len(list(e.vertices())))
-    points = []
-    for vx, vy in best.vertices():
-        points.append((float(vx), float(vy)))
-    return points
+    entities = _extract_polylines(filepath, _PLAN_PATTERNS)
+    return _points_from_entities(entities)
 
 
 def load_dxf_profile(filepath: str) -> list[tuple[float, float]]:
@@ -144,20 +160,15 @@ def load_dxf_profile(filepath: str) -> list[tuple[float, float]]:
     Returns:
         Liste de tuples (pk_m, z_m), ou [] si erreur
     """
-    entities = _extract_lwpolylines(filepath, _PROFILE_PATTERNS)
-    if not entities:
-        return []
-    best = max(entities, key=lambda e: len(list(e.vertices())))
-    points = []
-    for vx, vy in best.vertices():
-        points.append((float(vx), float(vy)))
-    return points
+    entities = _extract_polylines(filepath, _PROFILE_PATTERNS)
+    return _points_from_entities(entities)
 
 
 def load_dxf_both(filepath: str) -> dict:
     """
     Charge tracé en plan ET profil en long depuis un seul DXF.
     Détecte automatiquement les 2 calques.
+    Supporte LWPOLYLINE et POLYLINE.
 
     Returns:
         dict avec clés 'plan' (list[(x,y)]), 'profile' (list[(pk,z)]),
@@ -174,19 +185,20 @@ def load_dxf_both(filepath: str) -> dict:
     try:
         doc = ezdxf.readfile(filepath)
         msp = doc.modelspace()
-        # Plan
-        plan_entities = [e for e in msp.query("LWPOLYLINE")
+        all_polys = list(msp.query(_POLYLINE_TYPES))
+
+        plan_entities = [e for e in all_polys
                          if _match_layer(e.dxf.layer or "", _PLAN_PATTERNS)]
         if plan_entities:
-            best = max(plan_entities, key=lambda e: len(list(e.vertices())))
-            result["plan"] = [(float(x), float(y)) for x, y in best.vertices()]
+            best = max(plan_entities, key=lambda e: len(_get_vertices(e)))
+            result["plan"] = _get_vertices(best)
             result["plan_layer"] = best.dxf.layer
-        # Profil
-        prof_entities = [e for e in msp.query("LWPOLYLINE")
+
+        prof_entities = [e for e in all_polys
                          if _match_layer(e.dxf.layer or "", _PROFILE_PATTERNS)]
         if prof_entities:
-            best = max(prof_entities, key=lambda e: len(list(e.vertices())))
-            result["profile"] = [(float(x), float(y)) for x, y in best.vertices()]
+            best = max(prof_entities, key=lambda e: len(_get_vertices(e)))
+            result["profile"] = _get_vertices(best)
             result["profile_layer"] = best.dxf.layer
     except Exception:
         pass

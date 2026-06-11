@@ -552,7 +552,7 @@ class AirValveSizing:
     # Export DXF
     # ------------------------------------------------------------------
 
-    def export_dxf(self, filepath: str) -> bool:
+    def export_dxf(self, filepath: str) -> tuple[bool, str]:
         """
         Exporte le profil en long + ventouses + vidanges au format DXF.
         Calques créés :
@@ -564,14 +564,14 @@ class AirValveSizing:
             filepath: Chemin de sortie (.dxf)
 
         Returns:
-            True si réussi, False sinon
+            (True, "") si réussi, (False, raison) sinon
         """
         if not self.profile or len(self.profile) < 2:
-            return False
+            return False, "Profil insuffisant (minimum 2 points requis)."
         try:
             import ezdxf
         except ImportError:
-            return False
+            return False, "La librairie ezdxf n'est pas installée."
         try:
             doc = ezdxf.new("R2010")
             msp = doc.modelspace()
@@ -599,9 +599,9 @@ class AirValveSizing:
                 }).set_pos((x, y + 2.5), align="CENTER")
 
             doc.saveas(filepath)
-            return True
-        except Exception:
-            return False
+            return True, ""
+        except Exception as exc:
+            return False, f"Erreur lors de la création du DXF : {exc}"
 
     # ------------------------------------------------------------------
     # Utilitaires
