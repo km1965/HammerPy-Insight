@@ -24,6 +24,7 @@ PMIN_OPTIONS = {
     "0 bar (Recommandé – pas de dépression)": 0.0,
     "-0.1 bar (Faible dépression)":           -0.1,
     "-0.3 bar (Dépression modérée)":          -0.3,
+    "-0.5 bar (Dépression importante)":        -0.5,
     "-1.0 bar (Cavitation – Critique)":       -1.0,
 }
 
