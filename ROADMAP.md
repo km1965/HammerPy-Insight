@@ -3,7 +3,7 @@
 
 > **Statut** : 🟢 Phase 1 terminée — Parser classeur HAMMER + UI + .hpi v3.0 (juin 2026)
 > **Phase 2** : 🟢 Terminée — Parser rapport pompe RTF + UI courbe H(Q) graphique (juin 2026)
-> **Phase 3** : 🟢 Terminée — AirValveSizing + profil en long + ventaises + vidanges + UI + sérialisation + Word (juin 2026)
+> **Phase 3** : 🟢 Terminée — AirValveSizing + profil en long + ventouses + vidanges + UI + sérialisation + Word (juin 2026)
 > **Phase 3.5** : 🟢 Terminée — Imports multi-format (CSV Bentley FlexTable + DXF AutoCAD avec calques Plan/Profil) (juin 2026)
 > **Phase 3.6** : 🟢 Terminée — Mapping interactif colonnes avec auto-apprentissage (juin 2026)
 > **Phase 3.7** : 🟢 Terminée — Rapport Word (.docx) dédié Ventouses/Vidanges avec profil en long (juin 2026)
@@ -30,11 +30,11 @@ HammerPy Insight v3 sait :
 - ✅ **UI Courbe H(Q) Pompe** : KPI, saisie Q/H, courbe interpolée + point nominal
 - ✅ **Section « Batterie de Pompes »** dans le rapport Word avec alerte NPSH
 - ✅ **Profil en long** : import CSV ou profil exemple, détection points hauts/bas
-- ✅ **AirValveSizing** : pré-dimensionnement ventaises (anti-vide, combinée, grande orifice)
-- ✅ **DrainValveSizing** : localisation vidanges aux points bas entre ventaises
+- ✅ **AirValveSizing** : pré-dimensionnement ventouses (anti-vide, combinée, grande orifice)
+- ✅ **DrainValveSizing** : localisation vidanges aux points bas entre ventouses
 - ✅ **Onglet UI « Ventaises & Vidanges »** : graphique + tableaux + export CSV
-- ✅ **Sérialisation Phase 3** : ventaises/vidanges dans .hpi (rétrocompatible v3.0)
-- ✅ **Section « Profil en Long »** dans le rapport Word (tableaux ventaises + vidanges)
+- ✅ **Sérialisation Phase 3** : ventouses/vidanges dans .hpi (rétrocompatible v3.0)
+- ✅ **Section « Profil en Long »** dans le rapport Word (tableaux ventouses + vidanges)
 - ✅ **Imports multi-format (Phase 3.5)** : CSV Libre, CSV Bentley FlexTable (X,Y,Z → distance cumulée), DXF AutoCAD (calques Tracé en plan + Profil en long)
 - ✅ **Mapping interactif colonnes (Phase 3.6)** : boîte de dialogue modale, auto-apprentissage, persistance .hpi
 - ✅ **Rapport Word dédié Ventouses/Vidanges (Phase 3.7)** : image profil en long + tableaux + méthodologie
@@ -446,7 +446,7 @@ HammerPy Insight/
 ├── workbook.py                      # WorkbookManager — classeur HAMMER
 ├── pump_parser.py                   # PumpReportParser — rapport pompe RTF
 ├── report_generator.py              # WordReportGenerator — rapport Word
-├── air_valve_sizing.py              # AirValveSizing — ventaises/vidanges
+├── air_valve_sizing.py              # AirValveSizing — ventouses/vidanges
 ├── system_diagnostics.py            # SystemDiagnostics — 16 checks A-E (Phase 4)
 ├── diagnostics_charts.py            # 4 graphes imprimables pour rapport Word (Phase 4.1)
 ├── hammerpy_icon.ico                # Icône multi-tailles (370 Ko)

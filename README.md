@@ -12,7 +12,7 @@ Permettre aux ingénieurs hydrauliques de :
 3. Visualiser interactivement les courbes enveloppes de pressions et volumes de gaz
 4. Consulter le **résumé du modèle hydraulique** (6 feuilles : Pipes, Nœuds, Pompes, Réservoirs, HPT, Ventouses)
 5. **Analyser les courbes H(Q) de pompes** (multi-pompes en parallèle ou continu)
-6. **Dimensionner les ventaises et vidanges** sur le profil en long de la conduite
+6. **Dimensionner les ventouses et vidanges** sur le profil en long de la conduite
 7. Générer en un clic une **note technique structurée au format Word (.docx)** prête à intégrer au dossier d'étude
 
 ---
@@ -34,7 +34,7 @@ Permettre aux ingénieurs hydrauliques de :
   - Données station + données HPT **embarquées**
   - **6 feuilles du classeur HAMMER** (Pipes, Nœuds, Réservoirs, Pompes, HPT, Ventouses) en `orient='records'` optimisé
   - **Batterie de pompes** : liste de rapports détaillés parsés + mode Continu/Parallèle
-  - **Profil en long + ventaises + vidanges** (Phase 3)
+  - **Profil en long + ventouses + vidanges** (Phase 3)
   - **Diagnostic système** (Phase 4) : résultats 16 checks + résumé
   - Texte complet de la prévisualisation du rapport
   - Les graphiques Matplotlib sont **automatiquement régénérés** à l'ouverture
@@ -92,7 +92,7 @@ Permettre aux ingénieurs hydrauliques de :
   - Tableau récapitulatif par pompe (ID, label, débit, HMT, NPSH dispo.)
   - Alerte NPSH si dispo. < requis
 - **Section « Profil en Long »** dans le rapport Word :
-  - Table ventaises (vert) + Table vidanges (rouge)
+  - Table ventouses (vert) + Table vidanges (rouge)
 - **Export .txt** (note brute)
 - **Export Word (.docx)** professionnel structuré
 
@@ -113,12 +113,12 @@ Permettre aux ingénieurs hydrauliques de :
   - **Auto-apprentissage** : les mappings sont mémorisés (jamais redemandés)
   - Persistance dans `.hpi` (rétrocompatible v3.0)
 - **Saisie du DN conduite** (mm)
-- **Calcul automatique** des ventaises et vidanges :
+- **Calcul automatique** des ventouses et vidanges :
   - Détection des points hauts/bas du profil
-  - Pré-dimensionnement ventaises (anti-vide, combinée, grande orifice)
-  - Localisation vidanges aux points bas entre 2 ventaises
+  - Pré-dimensionnement ventouses (anti-vide, combinée, grande orifice)
+  - Localisation vidanges aux points bas entre 2 ventouses
 - **2 graphiques Matplotlib** :
-  - Profil en long (PK × Z) avec marqueurs ▲ ventaises / ▼ vidanges
+  - Profil en long (PK × Z) avec marqueurs ▲ ventouses / ▼ vidanges
   - Tracé en plan (X × Y) si DXF chargé
 - **Tableaux récapitulatifs** : PK, côte, type, DN, distances
 - **Export CSV** des recommandations
@@ -182,7 +182,7 @@ Permettre aux ingénieurs hydrauliques de :
 - `flow_lps`, `pump_head_m`, `pressure_suction_bar`, `pressure_discharge_bar`
 - `npsh_available_m`, `npsh_required_m`, `controlled`, `hydraulic_grade_*`
 
-### Profil en Long (import pour ventaises/vidanges)
+### Profil en Long (import pour ventouses/vidanges)
 
 | Format | Contenu |
 |--------|---------|
@@ -224,7 +224,7 @@ python main.py
 | `workbook.py` | WorkbookManager — chargement classeur HAMMER |
 | `pump_parser.py` | PumpReportParser — extraction données pompe depuis RTF |
 | `report_generator.py` | WordReportGenerator — génération rapport Word |
-| `air_valve_sizing.py` | AirValveSizing — dimensionnement ventaises/vidanges |
+| `air_valve_sizing.py` | AirValveSizing — dimensionnement ventouses/vidanges |
 | `hammerpy_icon.ico` | Icône de l'application |
 | `test_workbook_parser.py` | Tests unitaires (65 tests) |
 | `requirements.txt` | Dépendances Python |
@@ -292,12 +292,12 @@ main.py                          # GUI + entry point
 │   ├── VentousesReportGenerator  # Sections : en-tête, profil, ventouses, vidanges
 │   └── export_ventouses_report() # Helper tout-en-un (sizer + metadata + PNG)
 │
-└── air_valve_sizing.py          # Dimensionnement ventaises/vidanges
+└── air_valve_sizing.py          # Dimensionnement ventouses/vidanges
     ├── AirValveSizing           # Calcul points hauts/bas + sizing
     ├── load_profile_csv()       # Import profil en long (CSV libre)
     ├── load_profile_bentley_csv() # Import CSV FlexTable Bentley (X,Y,Z)
     ├── load_profile_manual()    # Saisie manuelle points (PK, Z)
-    ├── size_ventaises()         # Pré-dimensionnement ventaises
+    ├── size_ventouses()         # Pré-dimensionnement ventouses
     ├── size_drains()            # Localisation vidanges
     └── export_csv()             # Export recommandations
 ```
@@ -320,7 +320,7 @@ python -m pytest test_workbook_parser.py -v
 - 3 tests erreurs : extension invalide, fichier absent, feuille manquante
 - 4 tests rétrocompatibilité : CSV HPT + station lisibles
 - 12 tests `PumpReportParser` : chargement RTF réel, strip RTF, courbe points, interpolation, résumé
-- 7 tests `AirValveSizing` : profil, points hauts/bas, sizing ventaises/vidanges, DN, export CSV
+- 7 tests `AirValveSizing` : profil, points hauts/bas, sizing ventouses/vidanges, DN, export CSV
 - 14 tests DXF & CSV Bentley : normalisation calques, extraction LWPOLYLINE, parsing FlexTable, distance cumulée, pentes, détection points hauts/bas, encodages UTF-16
 - 24 tests ColumnMapper : auto-apprentissage, cache, UI callback, skip/cancel, sérialisation, hash fichier
 - 14 tests ventouses_report : génération, sauvegarde, intégration image PNG, contenu, stats

@@ -549,6 +549,61 @@ class AirValveSizing:
                 ])
 
     # ------------------------------------------------------------------
+    # Export DXF
+    # ------------------------------------------------------------------
+
+    def export_dxf(self, filepath: str) -> bool:
+        """
+        Exporte le profil en long + ventouses + vidanges au format DXF.
+        Calques créés :
+          - "Profil en long" : polyligne du profil (PK, Z)
+          - "Ventouses"      : cercles aux points hauts + texte du type
+          - "Vidanges"       : cercles aux points bas + texte du type
+
+        Args:
+            filepath: Chemin de sortie (.dxf)
+
+        Returns:
+            True si réussi, False sinon
+        """
+        if not self.profile or len(self.profile) < 2:
+            return False
+        try:
+            import ezdxf
+        except ImportError:
+            return False
+        try:
+            doc = ezdxf.new("R2010")
+            msp = doc.modelspace()
+
+            # -- Profil en long (LWPOLYLINE) --
+            points = [(p["pk_m"], p["z_m"], 0.0) for p in self.profile]
+            msp.add_lwpolyline(points, dxfattribs={"layer": "Profil en long", "color": 5})
+
+            # -- Ventouses (cercles + texte) --
+            for v in self.ventouses:
+                x, y = v["pk_m"], v["z_m"]
+                msp.add_circle((x, y, 0.0), radius=1.5,
+                               dxfattribs={"layer": "Ventouses", "color": 3})
+                msp.add_text(v["type"], dxfattribs={
+                    "layer": "Ventouses", "color": 3, "height": 2.0
+                }).set_pos((x, y + 2.5), align="CENTER")
+
+            # -- Vidanges (cercles + texte) --
+            for d in self.vidanges:
+                x, y = d["pk_m"], d["z_m"]
+                msp.add_circle((x, y, 0.0), radius=1.5,
+                               dxfattribs={"layer": "Vidanges", "color": 1})
+                msp.add_text(d["type"], dxfattribs={
+                    "layer": "Vidanges", "color": 1, "height": 2.0
+                }).set_pos((x, y + 2.5), align="CENTER")
+
+            doc.saveas(filepath)
+            return True
+        except Exception:
+            return False
+
+    # ------------------------------------------------------------------
     # Utilitaires
     # ------------------------------------------------------------------
 

@@ -146,7 +146,7 @@ class WordReportGenerator:
             chart_png_path : Chemin vers l'image PNG du graphique.
             workbook_summary : Résumé du classeur HAMMER.
             pump_summaries   : Liste de résumés des pompes.
-            air_valve_data   : Données ventaises/vidanges (profile, ventaises, vidanges).
+            air_valve_data   : Données ventouses/vidanges (profile, ventouses, vidanges).
 
         Returns:
             Le Document Word peuplé.
@@ -542,17 +542,17 @@ class WordReportGenerator:
 
             if vents or drains:
                 self._add_separator()
-                self._add_title("4. Profil en Long — Ventaises & Vidanges", level=1)
+                self._add_title("4. Profil en Long — Ventouses & Vidanges", level=1)
 
                 p_intro = self.doc.add_paragraph(
                     f"Le profil en long de la conduite (DN {pipe_dn:.0f} mm) a été analysé "
-                    f"pour localiser et dimensionner les ventaises et vidanges."
+                    f"pour localiser et dimensionner les ventouses et vidanges."
                 )
                 p_intro.runs[0].font.color.rgb = RGBColor(0x44, 0x44, 0x44)
                 self.doc.add_paragraph()
 
                 if vents:
-                    self._add_title(f"Ventaises recommandées ({len(vents)})", level=2)
+                    self._add_title(f"Ventouses recommandées ({len(vents)})", level=2)
 
                     tbl = self.doc.add_table(rows=len(vents) + 1, cols=4)
                     tbl.style = "Table Grid"
@@ -608,7 +608,7 @@ class WordReportGenerator:
 
                 if not vents and not drains:
                     self._add_alert(
-                        "Aucune ventaise ou vidange recommandée pour ce profil.",
+                        "Aucune ventouse ou vidange recommandée pour ce profil.",
                         "warning"
                     )
 

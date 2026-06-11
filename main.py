@@ -849,17 +849,22 @@ class HammerPyApp(ctk.CTk):
                       text_color=("gray10", "gray90"),
                       command=self._load_example_profile
                       ).grid(row=0, column=3, padx=(0, 6))
+        ctk.CTkButton(toolbar, text="Export DXF",
+                      fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"),
+                      command=self._export_valve_dxf
+                      ).grid(row=0, column=4, padx=(0, 6))
 
         ctk.CTkLabel(toolbar, text="DN conduite (mm) :",
-                     font=ctk.CTkFont(size=12)).grid(row=0, column=4, padx=(12, 4), sticky="e")
+                     font=ctk.CTkFont(size=12)).grid(row=0, column=5, padx=(12, 4), sticky="e")
         ctk.CTkEntry(toolbar, textvariable=self.var_pipe_dn, width=60
-                     ).grid(row=0, column=5, padx=(0, 6))
+                     ).grid(row=0, column=6, padx=(0, 6))
 
         ctk.CTkButton(toolbar, text="Calculer ventouses + vidanges",
                       fg_color="#2d6a4f", hover_color="#1b4332",
                       font=ctk.CTkFont(weight="bold"),
                       command=self._run_valve_sizing
-                      ).grid(row=0, column=6, padx=(6, 0))
+                      ).grid(row=0, column=7, padx=(6, 0))
 
         self.lbl_valve_status = ctk.CTkLabel(toolbar, text="Aucun profil chargé",
                                               text_color="gray", font=ctk.CTkFont(size=11))
@@ -1033,12 +1038,14 @@ class HammerPyApp(ctk.CTk):
         prof_pts = result.get("profile", [])
 
         if not prof_pts:
-            messagebox.showerror(
-                "Aucun profil trouvé",
-                "Calque 'Profil en long' introuvable dans le DXF.\n\n"
-                "Calques disponibles :\n" +
-                ", ".join(result.get("plan_layer", "") and [result.get("plan_layer")] or [])
-            )
+            from dxf_profile_importer import list_dxf_layers as _list_layers
+            layers = _list_layers(filepath)
+            msg = "Calque 'Profil en long' introuvable dans le DXF."
+            if layers:
+                msg += "\n\nCalques disponibles (LWPOLYLINE) :\n  " + "\n  ".join(layers)
+            else:
+                msg += "\n\nAucune LWPOLYLINE trouvée dans ce fichier."
+            messagebox.showerror("Aucun profil trouvé", msg)
             return
 
         # Charger le profil via load_profile_manual
@@ -1073,6 +1080,34 @@ class HammerPyApp(ctk.CTk):
             text_color="#2d6a4f")
         self._update_valve_chart()
         self._mark_dirty()
+
+    def _export_valve_dxf(self):
+        """Exporte le profil + ventouses/vidanges au format DXF."""
+        if len(self.air_valve_sizer.profile) < 2:
+            messagebox.showwarning("Profil manquant",
+                                   "Chargez d'abord un profil en long.")
+            return
+        try:
+            import ezdxf
+        except ImportError:
+            messagebox.showerror("Module manquant",
+                                "La librairie ezdxf n'est pas installée.\n"
+                                "Lancez : pip install ezdxf")
+            return
+        filepath = filedialog.asksaveasfilename(
+            title="Exporter le profil au format DXF",
+            defaultextension=".dxf",
+            filetypes=[("DXF (AutoCAD)", "*.dxf"), ("Tous", "*.*")]
+        )
+        if not filepath:
+            return
+        ok = self.air_valve_sizer.export_dxf(filepath)
+        if ok:
+            messagebox.showinfo("Export DXF réussi",
+                               f"Fichier créé :\n{filepath}")
+        else:
+            messagebox.showerror("Erreur export DXF",
+                                "Impossible d'exporter le DXF.")
 
     def _run_valve_sizing(self):
         """Lance le dimensionnement ventouses + vidanges."""
@@ -1207,7 +1242,7 @@ class HammerPyApp(ctk.CTk):
                         f"{v['type']:<35}  {v['dn_mm']:>7}\n")
                 self.txt_ventouses.insert(tk.END, line)
         else:
-            self.txt_ventouses.insert("1.0", "Aucune ventaise recommandée.\n")
+            self.txt_ventouses.insert("1.0", "Aucune ventouse recommandée.\n")
         self.txt_ventouses.configure(state="disabled")
 
         # Vidanges
