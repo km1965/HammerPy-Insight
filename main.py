@@ -2541,8 +2541,7 @@ class HammerPyApp(ctk.CTk):
         self.pump_curve_canvas.get_tk_widget().grid(
             row=0, column=0, sticky="nsew", padx=4, pady=4)
 
-        toolbar_bg = bg.replace("#", "")
-        self.pump_curve_toolbar = tk.Frame(self.pump_curve_frame, bg=toolbar_bg)
+        self.pump_curve_toolbar = tk.Frame(self.pump_curve_frame, bg=bg)
         self.pump_curve_toolbar.grid(row=1, column=0, sticky="ew", padx=4)
         self.pump_curve_toolbar = NavigationToolbar2Tk(
             self.pump_curve_canvas, self.pump_curve_toolbar)

@@ -157,6 +157,41 @@ class WorkbookManager:
                 if len(diameters) > 0:
                     summary["diameter_min_mm"] = round(float(diameters.min()), 1)
                     summary["diameter_max_mm"] = round(float(diameters.max()), 1)
+            length_col = find_col_in_df(df, ['length (user defined)', 'length', 'longueur'])
+            # Métré par DN + Matériau
+            pipe_detail = []
+            if diam_col is not None:
+                group_cols = [diam_col]
+                group_names = ["dn_mm"]
+                if mat_col is not None:
+                    group_cols.insert(0, mat_col)
+                    group_names.insert(0, "material")
+                for keys, grp in df.groupby(group_cols):
+                    if mat_col is not None and diam_col is not None:
+                        mat_val = str(keys[0]) if pd.notna(keys[0]) else "N/C"
+                        dn_val = parse_number(keys[1])
+                    elif diam_col is not None:
+                        dn_val = parse_number(keys) if not isinstance(keys, tuple) else keys
+                        mat_val = "N/C"
+                    else:
+                        continue
+                    if dn_val is None:
+                        continue
+                    dn_int = int(round(dn_val))
+                    total_len = None
+                    if length_col is not None:
+                        lens = grp[length_col].apply(parse_number).dropna()
+                        if len(lens) > 0:
+                            total_len = round(float(lens.sum()), 1)
+                    pipe_detail.append({
+                        "dn_mm": dn_int,
+                        "material": mat_val,
+                        "count": len(grp),
+                        "total_length_m": total_len,
+                    })
+                pipe_detail.sort(key=lambda r: (r["dn_mm"], r["material"]))
+            summary["pipes_by_dn_material"] = pipe_detail
+
             pmax_col = find_col_in_df(df, ['pressure (maximum'])
             pmin_col = find_col_in_df(df, ['pressure (minimum'])
             if pmax_col:

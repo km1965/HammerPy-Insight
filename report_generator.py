@@ -275,6 +275,28 @@ class WordReportGenerator:
                                         f"{diam_min} mm — {diam_max} mm")
                 self.doc.add_paragraph()
 
+            # Métré par DN et matériau
+            pipe_detail = workbook_summary.get("pipes_by_dn_material", [])
+            if pipe_detail:
+                self._add_title("Métré des Canalisations (par DN et Matériau)", level=2)
+                has_length = any(r["total_length_m"] is not None for r in pipe_detail)
+                cols = 3 if has_length else 2
+                tbl = self.doc.add_table(rows=len(pipe_detail) + 1, cols=cols)
+                tbl.style = "Table Grid"
+                tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+                hdrs = ["DN (mm)", "Matériau", "Long. Tot. (m)"] if has_length else ["DN (mm)", "Matériau"]
+                for j, h in enumerate(hdrs):
+                    run = tbl.rows[0].cells[j].paragraphs[0].add_run(h)
+                    run.bold = True
+                    run.font.color.rgb = self._rgb(self.COULEUR_TITRE_HEX)
+                for i, r in enumerate(pipe_detail):
+                    tbl.rows[i + 1].cells[0].paragraphs[0].add_run(str(r["dn_mm"]))
+                    tbl.rows[i + 1].cells[1].paragraphs[0].add_run(r["material"])
+                    if has_length:
+                        tbl.rows[i + 1].cells[2].paragraphs[0].add_run(
+                            f"{r['total_length_m']:.1f}" if r["total_length_m"] is not None else "—")
+                self.doc.add_paragraph()
+
             pmax_model = workbook_summary.get("pmax_bar")
             pmin_model = workbook_summary.get("pmin_bar")
 
