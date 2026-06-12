@@ -35,7 +35,7 @@ HammerPy Insight v3 sait :
 - ✅ **Onglet UI « Ventaises & Vidanges »** : graphique + tableaux + export CSV
 - ✅ **Sérialisation Phase 3** : ventouses/vidanges dans .hpi (rétrocompatible v3.0)
 - ✅ **Section « Profil en Long »** dans le rapport Word (tableaux ventouses + vidanges)
-- ✅ **Imports multi-format (Phase 3.5)** : CSV Libre, CSV Bentley FlexTable (X,Y,Z → distance cumulée), DXF AutoCAD (Hammer compatible – calques Tracé en plan / Profil en long + alternatives Hammer)
+- ✅ **Imports multi-format (Phase 3.5)** : CSV Libre, CSV Bentley FlexTable (X,Y,Z → distance cumulée), DXF AutoCAD (Hammer compatible – calques Tracé en plan / Profil en long – support LWPOLYLINE et POLYLINE)
 - ✅ **Mapping interactif colonnes (Phase 3.6)** : boîte de dialogue modale, auto-apprentissage, persistance .hpi
 - ✅ **Rapport Word dédié Ventouses/Vidanges (Phase 3.7)** : image profil en long + tableaux + méthodologie
 - ✅ **SystemDiagnostics (Phase 4)** : 16 vérifications croisées en 5 catégories (A-E) + onglet UI triable + KPI strip + section Word + sérialisation .hpi

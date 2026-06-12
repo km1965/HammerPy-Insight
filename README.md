@@ -101,7 +101,7 @@ Permettre aux ingénieurs hydrauliques de :
   - **CSV Libre** (PK, Z) — format simple
   - **CSV Bentley FlexTable** (Label, X, Y, Elevation) — export HAMMER
     - Distance cumulée calculée par cumul de distances successives (ordre amont→aval)
-  - **DXF AutoCAD (Hammer compatible)** — 1 fichier avec 2 calques LWPOLYLINE :
+  - **DXF AutoCAD (Hammer compatible)** — 1 fichier avec 2 calques LWPOLYLINE ou POLYLINE :
     - Calque `Tracé en plan` ou tout calque Hammer correspondant (ex : C300, C400, Polyline canalisation, …)
     - Calque `Profil en long` ou tout calque Hammer correspondant (ex : INITIALPRESSUREPROFILE, GRID, VOLUMEGRAPH, …)
     - Auto‑détection intelligente des noms de calques : accents, casse, et patterns Hammer ajoutés dans le code.
