@@ -8,6 +8,9 @@ Format attendu : 1 fichier DXF contenant 2 calques (LWPOLYLINE ou POLYLINE) :
   - "Profil en long" (X = distance cumulée, Y = altitude)
 
 Les noms de calques sont auto-détectés (case-insensitive, accents flexibles).
+Supporte également les noms propres de Bentley HAMMER :
+  - Plan : C300, C400, C500, Polyline canalisation, P0, PMP, R, Bab ballon anti belier, Bloc, etc.
+  - Profil : INITIALPRESSUREPROFILE, GRID, VOLUMEGRAPH, AXISLABELS, etc.
 """
 
 import math
@@ -28,16 +31,27 @@ except ImportError:
 _POLYLINE_TYPES = "LWPOLYLINE POLYLINE"
 
 # Noms de calques reconnus (normalisés sans accents, lowercase, sans espaces multiples)
+# ── Patterns Hammer (noms propres au logiciel Bentley HAMMER) ──
 _PLAN_PATTERNS = [
-    "trace en plan", "trace en plan", "trace en plan",
-    "trace", "trace", "plan", "plan view", "plan_view",
+    # Calques standards (français/anglais)
+    "trace en plan", "trace", "plan", "plan view", "plan_view",
     "view plan", "view_plan", "alignment", "alignement",
-    "trace plan", "trace plan", "xymap",
+    "trace plan", "xymap",
+    # Calques Hammer (noms propres)
+    "c300", "c400", "c500", "polyline canalisation",
+    "p0", "pmp", "bab ballon anti belier", "reservoirs",
+    "bloc", "bloc piont", "bloc pompes", "bloc reservoirs",
 ]
 _PROFILE_PATTERNS = [
+    # Calques standards (français/anglais)
     "profil en long", "profil", "profile", "longitudinal profile",
     "longitudinal_profile", "long profile", "long_profile",
     "lp", "elevation", "altitude", "profil longitudinal",
+    # Calques Hammer (noms propres)
+    "axislabels", "grid", "initialpressureprofile",
+    "maximumpressureprofile", "minimumpressureprofile",
+    "profiletitle", "referencelinetext",
+    "vapourpressureprofile", "volumegraph",
 ]
 
 

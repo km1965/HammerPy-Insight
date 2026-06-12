@@ -4,7 +4,7 @@
 > **Statut** : 🟢 Phase 1 terminée — Parser classeur HAMMER + UI + .hpi v3.0 (juin 2026)
 > **Phase 2** : 🟢 Terminée — Parser rapport pompe RTF + UI courbe H(Q) graphique (juin 2026)
 > **Phase 3** : 🟢 Terminée — AirValveSizing + profil en long + ventouses + vidanges + UI + sérialisation + Word (juin 2026)
-> **Phase 3.5** : 🟢 Terminée — Imports multi-format (CSV Bentley FlexTable + DXF AutoCAD avec calques Plan/Profil) (juin 2026)
+> **Phase 3.5** : 🟢 Terminée — Imports multi-format (CSV Bentley FlexTable + DXF AutoCAD (Hammer compatible) avec calques Plan/Profil) (juin 2026)
 > **Phase 3.6** : 🟢 Terminée — Mapping interactif colonnes avec auto-apprentissage (juin 2026)
 > **Phase 3.7** : 🟢 Terminée — Rapport Word (.docx) dédié Ventouses/Vidanges avec profil en long (juin 2026)
 > **Phase 4** : 🟢 Terminée — SystemDiagnostics (16 vérifications A-E) + onglet UI + section rapport Word + sérialisation (juin 2026)
@@ -35,7 +35,7 @@ HammerPy Insight v3 sait :
 - ✅ **Onglet UI « Ventaises & Vidanges »** : graphique + tableaux + export CSV
 - ✅ **Sérialisation Phase 3** : ventouses/vidanges dans .hpi (rétrocompatible v3.0)
 - ✅ **Section « Profil en Long »** dans le rapport Word (tableaux ventouses + vidanges)
-- ✅ **Imports multi-format (Phase 3.5)** : CSV Libre, CSV Bentley FlexTable (X,Y,Z → distance cumulée), DXF AutoCAD (calques Tracé en plan + Profil en long)
+- ✅ **Imports multi-format (Phase 3.5)** : CSV Libre, CSV Bentley FlexTable (X,Y,Z → distance cumulée), DXF AutoCAD (Hammer compatible – calques Tracé en plan / Profil en long + alternatives Hammer)
 - ✅ **Mapping interactif colonnes (Phase 3.6)** : boîte de dialogue modale, auto-apprentissage, persistance .hpi
 - ✅ **Rapport Word dédié Ventouses/Vidanges (Phase 3.7)** : image profil en long + tableaux + méthodologie
 - ✅ **SystemDiagnostics (Phase 4)** : 16 vérifications croisées en 5 catégories (A-E) + onglet UI triable + KPI strip + section Word + sérialisation .hpi
