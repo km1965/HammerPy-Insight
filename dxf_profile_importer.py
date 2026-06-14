@@ -78,14 +78,16 @@ def _match_layer(layer_name: str, patterns: list[str]) -> bool:
 
 
 def _get_vertices(entity) -> list[tuple[float, float]]:
-    """Extrait les sommets (X, Y) d'une LWPOLYLINE ou POLYLINE."""
+    """Extrait les sommets (X, Y) d'une LWPOLYLINE ou POLYLINE.
+    Utilise `entity.get_points()` qui fonctionne pour les deux types.
+    """
     try:
-        if entity.dxftype() == "LWPOLYLINE":
-            return [(float(vx), float(vy)) for vx, vy in entity.vertices()]
-        elif entity.dxftype() == "POLYLINE":
-            return [(float(v.dxf.location.x), float(v.dxf.location.y))
-                    for v in entity.vertices]
+        # `get_points()` retourne une liste de tuples (x, y, [z])
+        pts = entity.get_points()
+        # Conserver uniquement X et Y, les convertir en float
+        return [(float(px), float(py)) for px, py, *rest in pts]
     except Exception:
+        # En cas d’erreur (entity ne supporte pas get_points), retour vide
         return []
 
 

@@ -51,6 +51,8 @@ from column_mapper import get_mapper as _get_column_mapper
 from column_mapper_dialog import ask_column_mapping as _ask_column_mapping
 from ventouses_report import export_ventouses_report, DOCX_AVAILABLE as VENTOUSES_DOCX_AVAILABLE
 from system_diagnostics import SystemDiagnostics, ICON as DIAG_ICON, CAT_A as DIAG_CAT_A
+from model_builder import ModelData
+from model_builder_dialog import ModelBuilderDialog
 
 # ── Alias rétrocompatibilité ──────────────────────────────────────
 from utils import parse_number as _parse_number
@@ -94,6 +96,9 @@ class HammerPyApp(ctk.CTk):
         self.air_valve_sizer = AirValveSizing()
         self.var_pipe_dn = tk.StringVar(value="250")
         self.valve_profile_filepath: str = ""
+
+        # ── Phase 5+ : Model Builder (données réseau) ─────────────
+        self.model_data: ModelData | None = None
 
         # ── Column Mapper (auto-apprentissage mapping colonnes) ─────
         self._column_mapper = _get_column_mapper()
@@ -528,12 +533,13 @@ class HammerPyApp(ctk.CTk):
         kpi_strip = ctk.CTkFrame(tab, fg_color=("gray88", "gray14"))
         kpi_strip.grid(row=2, column=0, padx=20, pady=(0, 8), sticky="ew")
         kpi_strip.grid_rowconfigure(0, weight=0)
-        kpi_strip.grid_columnconfigure((0, 1, 2), weight=1)
+        kpi_strip.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
         for col, title, attr, unit in [
             (0, "Pression Min (Dépression)", "lbl_pmin_val", "bar"),
             (1, "Pression Max (Surpression)", "lbl_pmax_val", "bar"),
             (2, "Volume Gaz Max (HPT)", "lbl_vgas_val", "L"),
+            (3, "PN Requis (Fascicule 74)", "lbl_pn_req_val", ""),
         ]:
             ctk.CTkLabel(kpi_strip, text=title, font=ctk.CTkFont(size=11)
                          ).grid(row=0, column=col, pady=(12, 0))
@@ -549,7 +555,15 @@ class HammerPyApp(ctk.CTk):
 
         ctk.CTkLabel(wb_frame, text="MODÈLE HAMMER",
                      font=ctk.CTkFont(size=11, weight="bold"), text_color="gray"
-                     ).grid(row=0, column=0, columnspan=4, padx=18, pady=(12, 4), sticky="w")
+                     ).grid(row=0, column=0, padx=18, pady=(12, 4), sticky="w")
+
+        self.btn_model_builder = ctk.CTkButton(
+            wb_frame, text="\U0001f9f1  Model Builder  (Excel libre)",
+            fg_color="#6a4c93", hover_color="#49306b",
+            font=ctk.CTkFont(size=11),
+            command=self._open_model_builder,
+        )
+        self.btn_model_builder.grid(row=0, column=2, columnspan=2, padx=(0, 14), pady=(12, 4), sticky="e")
 
         self.btn_import_workbook = ctk.CTkButton(
             wb_frame, text="  Charger classeur HAMMER  (.xlsx / .xls)",
@@ -855,20 +869,30 @@ class HammerPyApp(ctk.CTk):
                       command=self._export_valve_dxf
                       ).grid(row=0, column=4, padx=(0, 6))
 
+        ctk.CTkButton(toolbar, text="💾 Export profil",
+                      fg_color="#1f538d", hover_color="#14375e",
+                      command=lambda: self._export_figure(self.valve_fig, "profil_long")
+                      ).grid(row=0, column=5, padx=(0, 6))
+        ctk.CTkButton(toolbar, text="💾 Export plan",
+                      fg_color="transparent", border_width=1,
+                      text_color=("gray10", "gray90"),
+                      command=lambda: self._export_figure(self.valve_plan_fig, "trace_plan")
+                      ).grid(row=0, column=6, padx=(0, 6))
+
         ctk.CTkLabel(toolbar, text="DN conduite (mm) :",
-                     font=ctk.CTkFont(size=12)).grid(row=0, column=5, padx=(12, 4), sticky="e")
+                     font=ctk.CTkFont(size=12)).grid(row=0, column=7, padx=(12, 4), sticky="e")
         ctk.CTkEntry(toolbar, textvariable=self.var_pipe_dn, width=60
-                     ).grid(row=0, column=6, padx=(0, 6))
+                     ).grid(row=0, column=8, padx=(0, 6))
 
         ctk.CTkButton(toolbar, text="Calculer ventouses + vidanges",
                       fg_color="#2d6a4f", hover_color="#1b4332",
                       font=ctk.CTkFont(weight="bold"),
                       command=self._run_valve_sizing
-                      ).grid(row=0, column=7, padx=(6, 0))
+                      ).grid(row=0, column=9, padx=(6, 0))
 
         self.lbl_valve_status = ctk.CTkLabel(toolbar, text="Aucun profil chargé",
                                               text_color="gray", font=ctk.CTkFont(size=11))
-        self.lbl_valve_status.grid(row=0, column=7, padx=(12, 0))
+        self.lbl_valve_status.grid(row=0, column=9, padx=(12, 0))
 
         # ── Zone principale : graphique + tableaux ──────────────────
         pane = ctk.CTkFrame(tab)
@@ -1581,6 +1605,24 @@ class HammerPyApp(ctk.CTk):
             self.lbl_vgas_val.configure(
                 text=self._format_volume(data['max_gas_volume_l']),
                 text_color="#33a02c" if data['max_gas_volume_l'] <= 200 else "orange")
+
+            # PN Requis (Fascicule 74) : PN ≥ Pmax_transient × 1.5
+            pmax_bar = data['max_pressure_bar']
+            required_bar = pmax_bar * 1.5
+            pn_selected = self._get_pn_value()
+            pn_req_label = "PN > 40"
+            pn_req_color = "tomato"
+            for pn_name, pn_val in sorted(PN_CLASSES.items(), key=lambda kv: kv[1]):
+                if pn_val >= required_bar:
+                    pn_req_label = pn_name
+                    if pn_val > pn_selected:
+                        pn_req_color = "tomato"
+                    elif pn_val == pn_selected:
+                        pn_req_color = "orange"
+                    else:
+                        pn_req_color = "#33a02c"
+                    break
+            self.lbl_pn_req_val.configure(text=pn_req_label, text_color=pn_req_color)
             self._update_chart()
             self._update_report_preview()
             self._mark_dirty()
@@ -1589,7 +1631,7 @@ class HammerPyApp(ctk.CTk):
                                 f"Fichier chargé : {data['n_rows']} point(s).\n"
                                 f"{data['message']}{sim_note}")
         else:
-            for lbl in (self.lbl_pmin_val, self.lbl_pmax_val, self.lbl_vgas_val):
+            for lbl in (self.lbl_pmin_val, self.lbl_pmax_val, self.lbl_vgas_val, self.lbl_pn_req_val):
                 lbl.configure(text="Erreur", text_color="tomato")
             self.lbl_graph_placeholder.configure(
                 text="❌  Échec du chargement — Consultez le rapport pour le diagnostic.",
@@ -1696,6 +1738,23 @@ class HammerPyApp(ctk.CTk):
             unit = {"pmax": "bar", "pmin": "bar", "vmax_pump": "L/s", "materials": ""}.get(key, "")
             lbl.configure(text=f"— {unit}" if unit else "—", text_color="#1f8ecf")
         self._mark_dirty()
+
+    # ------------------------------------------------------------------
+    # MODEL BUILDER — Import réseau (pipes + nodes) par mapping libre
+    # ------------------------------------------------------------------
+    def _open_model_builder(self):
+        """Ouvre le dialogue Model Builder pour importer un réseau."""
+        dialog = ModelBuilderDialog(self)
+        self.wait_window(dialog)
+        if dialog.result is not None and dialog.result.is_valid:
+            self.model_data = dialog.result
+            summary = self.model_data.get_summary()
+            messagebox.showinfo(
+                "Modèle réseau importé",
+                f"{summary['pipes_count']} canalisations, {summary['nodes_count']} nœuds\n"
+                f"Longueur totale : {summary['total_length_m']} m",
+            )
+            self._mark_dirty()
 
     # ------------------------------------------------------------------
     # MULTI-POMPE — Import, sélection, courbe, liste
@@ -2536,16 +2595,21 @@ class HammerPyApp(ctk.CTk):
             sp.set_color(spine_c)
 
         fig.tight_layout(pad=1.5)
+        self.pump_curve_fig = fig
 
         self.pump_curve_canvas = FigureCanvasTkAgg(fig, master=self.pump_curve_frame)
         self.pump_curve_canvas.get_tk_widget().grid(
             row=0, column=0, sticky="nsew", padx=4, pady=4)
 
-        self.pump_curve_toolbar = tk.Frame(self.pump_curve_frame, bg=bg)
-        self.pump_curve_toolbar.grid(row=1, column=0, sticky="ew", padx=4)
-        self.pump_curve_toolbar = NavigationToolbar2Tk(
-            self.pump_curve_canvas, self.pump_curve_toolbar)
+        toolbar_frame = tk.Frame(self.pump_curve_frame, bg=bg)
+        toolbar_frame.grid(row=1, column=0, sticky="ew", padx=4)
+        toolbar_frame.grid_columnconfigure(0, weight=1)
+        self.pump_curve_toolbar = NavigationToolbar2Tk(self.pump_curve_canvas, toolbar_frame)
         self.pump_curve_toolbar.update()
+        ctk.CTkButton(
+            toolbar_frame, text="💾 Export", width=80, fg_color="#1f538d",
+            command=lambda: self._export_figure(self.pump_curve_fig, "courbe_HQ")
+        ).pack(side="right", padx=(0, 4))
         self.pump_curve_canvas.draw()
 
     def _clear_pump_curve_chart(self):
@@ -2556,6 +2620,7 @@ class HammerPyApp(ctk.CTk):
         if self.pump_curve_toolbar:
             self.pump_curve_toolbar.destroy()
             self.pump_curve_toolbar = None
+        self.pump_curve_fig = None
         self.lbl_pump_curve_placeholder.grid(
             row=0, column=0, padx=20, pady=30, sticky="nsew")
 
@@ -2660,11 +2725,15 @@ class HammerPyApp(ctk.CTk):
         self.plot_placeholder_frame.grid_rowconfigure(1, weight=0)
         self.plot_placeholder_frame.grid_columnconfigure(0, weight=1)
 
-        toolbar_bg = bg.replace("#", "")
         self.toolbar_frame = tk.Frame(self.plot_placeholder_frame, bg=bg)
         self.toolbar_frame.grid(row=1, column=0, sticky="ew", padx=4)
+        self.toolbar_frame.grid_columnconfigure(0, weight=1)
         self.toolbar = NavigationToolbar2Tk(self.canvas, self.toolbar_frame)
         self.toolbar.update()
+        ctk.CTkButton(
+            self.toolbar_frame, text="💾 Export", width=80, fg_color="#1f538d",
+            command=lambda: self._export_figure(self.current_fig, "enveloppe_HPT")
+        ).pack(side="right", padx=(0, 4))
         self.canvas.draw()
 
     # ================================================================
@@ -3342,10 +3411,30 @@ class HammerPyApp(ctk.CTk):
                 self.lbl_vgas_val.configure(
                     text=f"{vgas} L",
                     text_color="#33a02c" if vgas is not None and vgas <= 200 else "orange")
+                pmax = self.transient_status.get("max_pressure_bar")
+                if pmax is not None:
+                    required_bar = pmax * 1.5
+                    pn_selected = self._get_pn_value()
+                    pn_req_label = "PN > 40"
+                    pn_req_color = "tomato"
+                    for pn_name, pn_val in sorted(PN_CLASSES.items(), key=lambda kv: kv[1]):
+                        if pn_val >= required_bar:
+                            pn_req_label = pn_name
+                            if pn_val > pn_selected:
+                                pn_req_color = "tomato"
+                            elif pn_val == pn_selected:
+                                pn_req_color = "orange"
+                            else:
+                                pn_req_color = "#33a02c"
+                            break
+                    self.lbl_pn_req_val.configure(text=pn_req_label, text_color=pn_req_color)
+                else:
+                    self.lbl_pn_req_val.configure(text="--", text_color="#1f8ecf")
             else:
                 self.lbl_pmin_val.configure(text="-- bar", text_color="#1f8ecf")
                 self.lbl_pmax_val.configure(text="-- bar", text_color="#1f8ecf")
                 self.lbl_vgas_val.configure(text="-- L", text_color="#1f8ecf")
+                self.lbl_pn_req_val.configure(text="--", text_color="#1f8ecf")
 
             # ── Classeur HAMMER (v3.0+) ───────────────────────────────
             wb = payload.get("workbook", {})
@@ -3627,6 +3716,32 @@ class HammerPyApp(ctk.CTk):
     # ================================================================
     # EXPORT
     # ================================================================
+
+    def _export_figure(self, fig, default_name="graphique"):
+        """Exporte une figure Matplotlib au format PNG/PDF/SVG."""
+        if fig is None:
+            messagebox.showwarning("Aucun graphique", "Aucun graphique à exporter.")
+            return
+        filepath = filedialog.asksaveasfilename(
+            title="Exporter le graphique",
+            defaultextension=".png",
+            initialfile=f"{default_name}.png",
+            filetypes=[
+                ("PNG", "*.png"),
+                ("PDF", "*.pdf"),
+                ("SVG", "*.svg"),
+                ("Tous", "*.*"),
+            ]
+        )
+        if not filepath:
+            return
+        try:
+            fmt = os.path.splitext(filepath)[1].lstrip(".").lower() or "png"
+            fig.savefig(filepath, dpi=150, bbox_inches="tight",
+                        facecolor=fig.get_facecolor())
+            messagebox.showinfo("Export réussi", f"Graphique exporté :\n{filepath}")
+        except Exception as exc:
+            messagebox.showerror("Erreur d'export", str(exc))
 
     def _export_txt(self):
         """Export de la note textuelle brute au format .txt."""

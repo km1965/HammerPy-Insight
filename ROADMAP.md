@@ -373,7 +373,7 @@ HammerPy Insight v3 sait :
 | **P3.6 — Mapping interactif colonnes** | ColumnMapper + UI modale + auto-apprentissage + 28 tests + .hpi | ✅ Terminé |
 | **P3.7 — Rapport Ventouses Word** | ventouses_report.py + bouton UI + 14 tests + image profil | ✅ Terminé |
 | **P4 — Module Système** | SystemDiagnostics 16 checks + onglet UI + section Word + 81 tests | ✅ Terminé |
-| **P5 — Documentation** | README, CHANGELOG, guide utilisateur v3.0 | 📋 |
+| **P5 — Documentation & Model Builder** | USER_GUIDE, CHANGELOG, export images, PN requis, Model Builder réseau | ✅ Terminé |
 
 ---
 
@@ -481,6 +481,7 @@ HammerPy Insight/
 *Phase 4 terminée le 6 juin 2026 — SystemDiagnostics 16 checks + onglet UI + section Word + 81 tests*
 *Phase 4.1 terminée le 6 juin 2026 — 4 graphes imprimables (KPI donut, catégorie, conformité, profil) + 24 tests*
 *Phase 4.2 terminée le 8 juin 2026 — Parsing Nq + import XLSX/CSV pompe + 3 templates + messages améliorés*
+*Phase 5 terminée le 14 juin 2026 — USER_GUIDE, CHANGELOG, export images PNG/PDF/SVG, PN requis F74, Model Builder réseau*
 
 ### 2.6 Phase 4.2 — Import données pompe (Terminée — 8 Juin 2026)
 
