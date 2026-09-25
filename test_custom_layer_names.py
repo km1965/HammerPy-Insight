@@ -69,7 +69,6 @@ def create_dxf_with_custom_layers(filepath: str):
 
     # Save to the requested temporary file
     doc.saveas(filepath)
-    doc.close()
 
 
 # ----------------------------------------------------------------------
@@ -82,22 +81,22 @@ def main():
 
     try:
         create_dxf_with_custom_layers(tmp_path)
-        print(f"\n✅ DXF temporaire créé : {tmp_path}\n")
+        print(f"\n[OK] DXF temporaire cree : {tmp_path}\n")
 
         # 2️⃣ List detected layers – useful for debugging
         layers = list_dxf_layers(tmp_path)
-        print("🔎 Calques détectés :", layers)
+        print("Calques detectes :", layers)
 
         # 3️⃣ Try the three importer entry‑points
-        print("\n📂 Chargement « plan » …")
+        print("\nChargement plan ...")
         plan_pts = load_dxf_plan(tmp_path)
-        print(f"   Points récupérés : {len(plan_pts)} … {plan_pts[:3]}")
+        print(f"   Points recuperes : {len(plan_pts)} ... {plan_pts[:3]}")
 
-        print("\n📈 Chargement « profil » …")
+        print("\nChargement profil ...")
         prof_pts = load_dxf_profile(tmp_path)
-        print(f"   Points récupérés : {len(prof_pts)} … {prof_pts[:3]}")
+        print(f"   Points recuperes : {len(prof_pts)} ... {prof_pts[:3]}")
 
-        print("\n🔀 Chargement complet (plan + profil) …")
+        print("\nChargement complet (plan + profil) ...")
         result = load_dxf_both(tmp_path)
         print(
             f"   plan_layer   : {result.get('plan_layer')!r}\n"
@@ -107,21 +106,21 @@ def main():
         )
 
         # 4️⃣ Diagnostic prints for the pattern matcher
-        print("\n🧩 Pattern‑matching diagnostic :")
+        print("\nPattern-matching diagnostic :")
         for pat in ["Plan", "Profil"]:
             matched = _match_layer(pat, ["trace en plan", "plan", "profil en long", "profil"])
-            print(f"   « {pat} » vs. patterns → {matched}")
+            print(f"   {pat} vs. patterns -> {matched}")
 
         # 5️⃣ Normalisation illustration
-        print("\n⚙️  Normalisation des noms de calques :")
-        for original in ["Plan", "Profil", "Tracé en plan", "Profil en long"]:
-            print(f"   {original!r} → {_normalize_layer_name(original)!r}")
+        print("\nNormalisation des noms de calques :")
+        for original in ["Plan", "Profil", "Trace en plan", "Profil en long"]:
+            print(f"   {original!r} -> {_normalize_layer_name(original)!r}")
 
     finally:
         # Clean up the temporary file
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
-            print(f"\n🗑️  Fichier temporaire supprimé : {tmp_path}")
+            print(f"\nFichier temporaire supprime : {tmp_path}")
 
 
 if __name__ == "__main__":

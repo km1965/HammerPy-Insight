@@ -576,6 +576,13 @@ class AirValveSizing:
             doc = ezdxf.new("R2010")
             msp = doc.modelspace()
 
+            # -- Gestion robuste de l'alignement de texte --
+            try:
+                from ezdxf.enums import TextEntityAlignment
+                align_center = TextEntityAlignment.CENTER
+            except ImportError:
+                align_center = "CENTER"
+
             # -- Profil en long (LWPOLYLINE) --
             points = [(p["pk_m"], p["z_m"], 0.0) for p in self.profile]
             msp.add_lwpolyline(points, dxfattribs={"layer": "Profil en long", "color": 5})
@@ -587,7 +594,7 @@ class AirValveSizing:
                                dxfattribs={"layer": "Ventouses", "color": 3})
                 txt = msp.add_text(v["type"], dxfattribs={
                     "layer": "Ventouses", "color": 3, "height": 2.0})
-                txt.set_placement((x, y + 2.5, 0.0), align=txt.CENTER)
+                txt.set_placement((x, y + 2.5, 0.0), align=align_center)
 
             # -- Vidanges (cercles + texte) --
             for d in self.vidanges:
@@ -596,7 +603,7 @@ class AirValveSizing:
                                dxfattribs={"layer": "Vidanges", "color": 1})
                 txt = msp.add_text(d["type"], dxfattribs={
                     "layer": "Vidanges", "color": 1, "height": 2.0})
-                txt.set_placement((x, y + 2.5, 0.0), align=txt.CENTER)
+                txt.set_placement((x, y + 2.5, 0.0), align=align_center)
 
             doc.saveas(filepath)
             return True, ""

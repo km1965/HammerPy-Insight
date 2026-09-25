@@ -420,3 +420,81 @@ class TestBentleyCsv:
             assert len(avs.profile) == 3
         finally:
             os.unlink(f.name)
+
+
+# =====================================================================
+# Nouveaux Tests de Robustesse DXF (Virgules, POLYLINE, Assemblage)
+# =====================================================================
+
+class TestDxfRobustness:
+    """Tests unitaires pour les fonctionnalités de robustesse DXF ajoutées."""
+
+    def test_assemble_segments_ordered(self):
+        """Vérifie l'assemblage de segments déjà ordonnés."""
+        from dxf_profile_importer import assemble_segments
+        segs = [
+            [(0, 0), (10, 5)],
+            [(10, 5), (20, 3)],
+            [(20, 3), (30, 8)]
+        ]
+        path = assemble_segments(segs)
+        assert len(path) == 4
+        assert path[0] == (0, 0)
+        assert path[-1] == (30, 8)
+
+    def test_assemble_segments_unordered_reversed(self):
+        """Vérifie l'assemblage de segments non ordonnés et inversés."""
+        from dxf_profile_importer import assemble_segments
+        segs = [
+            [(20, 3), (30, 8)],  # segment 3
+            [(10, 5), (0, 0)],   # segment 1 (inversé)
+            [(10, 5), (20, 3)],  # segment 2
+        ]
+        path = assemble_segments(segs)
+        assert len(path) == 4
+        # Doit former un chemin continu
+        # Les points extrêmes doivent être (0,0) et (30,8)
+        assert (path[0] == (0, 0) and path[-1] == (30, 8)) or (path[0] == (30, 8) and path[-1] == (0, 0))
+
+    def test_comma_decimal_cleaner(self):
+        """Vérifie que la lecture robuste gère et corrige les virgules décimales."""
+        if not HAS_EZDXF:
+            pytest.skip("ezdxf non installé")
+            
+        import ezdxf
+        doc = ezdxf.new("R2010")
+        msp = doc.modelspace()
+        # Création d'une polyligne avec une coordonnée bien précise
+        msp.add_lwpolyline([(0.0, 0.0), (10.0, 10.0)], dxfattribs={"layer": "Profil en long"})
+        
+        f = tempfile.NamedTemporaryFile(suffix=".dxf", delete=False)
+        f.close()
+        doc.saveas(f.name)
+        
+        try:
+            # Lire le contenu brut
+            with open(f.name, 'r', encoding='utf-8') as fr:
+                text = fr.read()
+            
+            # Remplacer les 10.0 par des 10,0
+            # Pour cibler précisément le réel de coordonnées
+            text_corrupted = text.replace("\n10.0\n", "\n10,0\n")
+            
+            with open(f.name, 'w', encoding='utf-8') as fw:
+                fw.write(text_corrupted)
+                
+            # Vérifier qu'ezdxf standard lève une exception
+            with pytest.raises((Exception, ValueError)):
+                ezdxf.readfile(f.name)
+                
+            # Vérifier que notre importateur robuste réussit
+            from dxf_profile_importer import _read_dxf_file_robustly, load_dxf_profile
+            doc_cleaned = _read_dxf_file_robustly(f.name)
+            assert doc_cleaned is not None
+            
+            profile = load_dxf_profile(f.name)
+            assert len(profile) == 2
+            assert profile[0] == (0.0, 0.0)
+            assert profile[1] == (10.0, 10.0)
+        finally:
+            os.unlink(f.name)

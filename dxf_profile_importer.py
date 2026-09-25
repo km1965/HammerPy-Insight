@@ -13,6 +13,7 @@ Supporte également les noms propres de Bentley HAMMER :
   - Profil : INITIALPRESSUREPROFILE, GRID, VOLUMEGRAPH, AXISLABELS, etc.
 """
 
+import io
 import math
 import re
 import unicodedata
@@ -78,17 +79,109 @@ def _match_layer(layer_name: str, patterns: list[str]) -> bool:
 
 
 def _get_vertices(entity) -> list[tuple[float, float]]:
-    """Extrait les sommets (X, Y) d'une LWPOLYLINE ou POLYLINE.
-    Utilise `entity.get_points()` qui fonctionne pour les deux types.
+    """Extrait les sommets (X, Y) d'une LWPOLYLINE ou POLYLINE de façon robuste.
+    Gère à la fois les LWPOLYLINE et les POLYLINE 2D/3D complexes.
     """
     try:
-        # `get_points()` retourne une liste de tuples (x, y, [z])
-        pts = entity.get_points()
-        # Conserver uniquement X et Y, les convertir en float
-        return [(float(px), float(py)) for px, py, *rest in pts]
+        t = entity.dxftype()
+        if t == "LWPOLYLINE":
+            pts = entity.get_points()
+            return [(float(px), float(py)) for px, py, *rest in pts]
+        elif t == "POLYLINE":
+            return [(float(v.dxf.location.x), float(v.dxf.location.y)) for v in entity.vertices]
     except Exception:
-        # En cas d’erreur (entity ne supporte pas get_points), retour vide
+        pass
+    return []
+
+
+def _distance(p1: tuple[float, float], p2: tuple[float, float]) -> float:
+    """Calcule la distance euclidienne entre deux points 2D."""
+    return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+
+
+def assemble_segments(segments: list[list[tuple[float, float]]], epsilon: float = 0.1) -> list[tuple[float, float]]:
+    """
+    Assemble une liste de segments de points non ordonnés en un ou plusieurs chemins continus.
+    Chaque segment est une liste/tuple de points (typiquement 2 points d'un tronçon).
+    """
+    if not segments:
         return []
+    # Copier et filtrer les segments valides
+    available = [list(seg) for seg in segments if len(seg) >= 2]
+    if not available:
+        return []
+
+    paths = []
+    while available:
+        curr_path = available.pop(0)
+        extended = True
+        while extended:
+            extended = False
+            p_first = curr_path[0]
+            p_last = curr_path[-1]
+            
+            for idx, seg in enumerate(available):
+                # Connexions à la fin du chemin actuel
+                if _distance(p_last, seg[0]) < epsilon:
+                    curr_path.extend(seg[1:])
+                    available.pop(idx)
+                    extended = True
+                    break
+                elif _distance(p_last, seg[-1]) < epsilon:
+                    curr_path.extend(reversed(seg[:-1]))
+                    available.pop(idx)
+                    extended = True
+                    break
+                # Connexions au début du chemin actuel
+                elif _distance(p_first, seg[-1]) < epsilon:
+                    curr_path = seg[:-1] + curr_path
+                    available.pop(idx)
+                    extended = True
+                    break
+                elif _distance(p_first, seg[0]) < epsilon:
+                    curr_path = list(reversed(seg[1:])) + curr_path
+                    available.pop(idx)
+                    extended = True
+                    break
+        paths.append(curr_path)
+
+    if not paths:
+        return []
+    # Prendre le chemin avec le plus grand nombre de points
+    return max(paths, key=len)
+
+
+def _read_dxf_file_robustly(filepath: str):
+    """
+    Lit un fichier DXF en gérant l'encodage et en convertissant en mémoire
+    les virgules décimales mal formées (spécifiques aux exports régionaux FR) en points.
+    Retourne un objet Drawing ezdxf.
+    """
+    encodings = ['utf-8', 'cp1252', 'latin-1', 'utf-16']
+    content = None
+    for enc in encodings:
+        try:
+            with open(filepath, 'r', encoding=enc, errors='replace') as f:
+                content = f.read()
+            break
+        except Exception:
+            continue
+            
+    if content is None:
+        raise ValueError(f"Impossible de lire le fichier DXF : {filepath}")
+
+    # Remplacer les virgules par des points sur les lignes contenant uniquement un float
+    comma_decimal_re = re.compile(r'^\s*(-?\d+),(\d+)\s*$')
+    cleaned_lines = []
+    for line in content.splitlines():
+        match = comma_decimal_re.match(line)
+        if match:
+            cleaned_lines.append(f"{match.group(1)}.{match.group(2)}")
+        else:
+            cleaned_lines.append(line)
+            
+    stream = io.StringIO("\n".join(cleaned_lines))
+    return ezdxf.read(stream)
 
 
 def list_dxf_layers(filepath: str) -> list[str]:
@@ -104,7 +197,7 @@ def list_dxf_layers(filepath: str) -> list[str]:
     if not HAS_EZDXF:
         return []
     try:
-        doc = ezdxf.readfile(filepath)
+        doc = _read_dxf_file_robustly(filepath)
         msp = doc.modelspace()
         layers = set()
         for entity in msp.query(_POLYLINE_TYPES):
@@ -126,7 +219,7 @@ def _extract_polylines(filepath: str, target_layers: list[str]) -> list:
     if not HAS_EZDXF:
         return []
     try:
-        doc = ezdxf.readfile(filepath)
+        doc = _read_dxf_file_robustly(filepath)
         msp = doc.modelspace()
         matched = []
         for entity in msp.query(_POLYLINE_TYPES):
@@ -139,11 +232,26 @@ def _extract_polylines(filepath: str, target_layers: list[str]) -> list:
 
 
 def _points_from_entities(entities: list) -> list[tuple[float, float]]:
-    """Extrait les points de la polyligne la plus longue d'une liste."""
+    """Extrait les points des entités polylignes en les groupant par calque
+    pour éviter de mélanger les tracés, puis assemble les segments du calque le plus riche.
+    """
     if not entities:
         return []
-    best = max(entities, key=lambda e: len(_get_vertices(e)))
-    return _get_vertices(best)
+    # Grouper par calque
+    by_layer = {}
+    for e in entities:
+        l = e.dxf.layer or ""
+        if l not in by_layer:
+            by_layer[l] = []
+        by_layer[l].append(e)
+        
+    best_path = []
+    for layer, ents in by_layer.items():
+        segments = [pts for e in ents if (pts := _get_vertices(e))]
+        assembled = assemble_segments(segments, epsilon=0.1)
+        if len(assembled) > len(best_path):
+            best_path = assembled
+    return best_path
 
 
 def load_dxf_plan(filepath: str) -> list[tuple[float, float]]:
@@ -199,23 +307,44 @@ def load_dxf_both(filepath: str) -> dict:
     if not HAS_EZDXF:
         return result
     try:
-        doc = ezdxf.readfile(filepath)
+        doc = _read_dxf_file_robustly(filepath)
         msp = doc.modelspace()
         all_polys = list(msp.query(_POLYLINE_TYPES))
 
-        plan_entities = [e for e in all_polys
-                         if _match_layer(e.dxf.layer or "", _PLAN_PATTERNS)]
-        if plan_entities:
-            best = max(plan_entities, key=lambda e: len(_get_vertices(e)))
-            result["plan"] = _get_vertices(best)
-            result["plan_layer"] = best.dxf.layer
+        # Regrouper les polylignes par calque
+        polys_by_layer = {}
+        for e in all_polys:
+            l = e.dxf.layer
+            if l:
+                if l not in polys_by_layer:
+                    polys_by_layer[l] = []
+                polys_by_layer[l].append(e)
 
-        prof_entities = [e for e in all_polys
-                         if _match_layer(e.dxf.layer or "", _PROFILE_PATTERNS)]
-        if prof_entities:
-            best = max(prof_entities, key=lambda e: len(_get_vertices(e)))
-            result["profile"] = _get_vertices(best)
-            result["profile_layer"] = best.dxf.layer
+        # Chercher le meilleur calque plan
+        best_plan_pts = []
+        best_plan_layer = None
+        for layer, entities in polys_by_layer.items():
+            if _match_layer(layer, _PLAN_PATTERNS):
+                segments = [pts for e in entities if (pts := _get_vertices(e))]
+                assembled = assemble_segments(segments, epsilon=0.1)
+                if len(assembled) > len(best_plan_pts):
+                    best_plan_pts = assembled
+                    best_plan_layer = layer
+        result["plan"] = best_plan_pts
+        result["plan_layer"] = best_plan_layer
+
+        # Chercher le meilleur calque profil
+        best_prof_pts = []
+        best_prof_layer = None
+        for layer, entities in polys_by_layer.items():
+            if _match_layer(layer, _PROFILE_PATTERNS):
+                segments = [pts for e in entities if (pts := _get_vertices(e))]
+                assembled = assemble_segments(segments, epsilon=0.1)
+                if len(assembled) > len(best_prof_pts):
+                    best_prof_pts = assembled
+                    best_prof_layer = layer
+        result["profile"] = best_prof_pts
+        result["profile_layer"] = best_prof_layer
     except Exception:
         pass
     return result
