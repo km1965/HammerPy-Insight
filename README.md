@@ -328,3 +328,7 @@ python -m pytest test_workbook_parser.py -v
 ---
 
 *Document mis à jour — HammerPy Insight v3.0 Phase 3 + Phase 3.5 Imports multi-format + Phase 3.6 Mapping interactif + Rapport Ventouses + Phase 4 SystemDiagnostics — Juin 2026*
+
+## Licence
+
+Code distribué sous licence **MIT** (voir `LICENSE`). © 2026 Mostafa Karim Soussi.
