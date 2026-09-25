@@ -96,7 +96,7 @@ Permettre aux ingénieurs hydrauliques de :
 - **Export .txt** (note brute)
 - **Export Word (.docx)** professionnel structuré
 
-### Onglet 4 — Ventaises & Vidanges (Phase 3)
+### Onglet 4 — Ventouses & Vidanges (Phase 3)
 - **Imports multi-format** :
   - **CSV Libre** (PK, Z) — format simple
   - **CSV Bentley FlexTable** (Label, X, Y, Elevation) — export HAMMER
